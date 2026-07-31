@@ -32,7 +32,7 @@ private struct DashboardView: View {
                 ContentUnavailableView {
                     Label("No Loaded Tasks", systemImage: "terminal")
                 } description: {
-                    Text("Loaded root Codex tasks on your enabled remote hosts will appear here.")
+                    Text("Loaded Codex and Claude Code tasks on your enabled remote hosts will appear here.")
                 } actions: {
                     Button("Refresh") {
                         model.refresh()
@@ -178,6 +178,12 @@ private struct SessionRow: View {
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
 
+                    Label(session.agent.displayName, systemImage: session.agent.systemImage)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+
                     if let directoryName = session.workingDirectoryName {
                         Label(directoryName, systemImage: "folder")
                             .lineLimit(1)
@@ -201,7 +207,8 @@ private struct SessionRow: View {
     }
 
     private var accessibilityLabel: String {
-        let summary = "\(session.name), \(session.status.displayName), \(hostLabel)"
+        let summary = "\(session.name), \(session.agent.displayName), "
+            + "\(session.status.displayName), \(hostLabel)"
         guard session.status != .ready else { return summary }
         return "\(summary), updated \(session.updatedAt.formatted(.relative(presentation: .named)))"
     }
@@ -222,7 +229,7 @@ private struct IssuesSection: View {
 
             ForEach(model.issues) { issue in
                 IssueRow(
-                    hostID: model.hostLabel(for: issue.hostID),
+                    hostID: "\(model.hostLabel(for: issue.hostID)) · \(issue.agent.displayName)",
                     message: issue.message,
                     retry: { model.retry(hostID: issue.hostID) }
                 )
@@ -276,6 +283,15 @@ private struct DashboardFooter: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+    }
+}
+
+private extension AgentKind {
+    var systemImage: String {
+        switch self {
+        case .codex: "chevron.left.forwardslash.chevron.right"
+        case .claudeCode: "sparkles"
+        }
     }
 }
 

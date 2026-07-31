@@ -1,5 +1,17 @@
 import Foundation
 
+public enum AgentKind: String, Sendable, Hashable, Codable, CaseIterable {
+    case codex
+    case claudeCode
+
+    public var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        }
+    }
+}
+
 public enum TaskDisplayStatus: String, Sendable, Hashable, Codable, CaseIterable {
     case needsAttention
     case working
@@ -24,13 +36,14 @@ public enum TaskDisplayStatus: String, Sendable, Hashable, Codable, CaseIterable
 
 public struct SessionSnapshot: Identifiable, Sendable, Hashable {
     public let hostID: String
+    public let agent: AgentKind
     public let threadID: String
     public let name: String
     public let cwd: String?
     public let updatedAt: Date
     public let status: TaskDisplayStatus
 
-    public var id: String { "\(hostID):\(threadID)" }
+    public var id: String { "\(hostID):\(agent.rawValue):\(threadID)" }
 
     public var workingDirectoryName: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
@@ -40,6 +53,7 @@ public struct SessionSnapshot: Identifiable, Sendable, Hashable {
 
     public init(
         hostID: String,
+        agent: AgentKind = .codex,
         threadID: String,
         name: String,
         cwd: String? = nil,
@@ -47,6 +61,7 @@ public struct SessionSnapshot: Identifiable, Sendable, Hashable {
         status: TaskDisplayStatus
     ) {
         self.hostID = hostID
+        self.agent = agent
         self.threadID = threadID
         self.name = name
         self.cwd = cwd
@@ -65,6 +80,7 @@ public enum HostIssueKind: String, Sendable, Hashable, Codable {
 public struct HostIssue: Identifiable, Sendable, Hashable {
     public let id: String
     public let hostID: String
+    public let agent: AgentKind
     public let kind: HostIssueKind
     public let message: String
     public let updatedAt: Date
@@ -72,12 +88,14 @@ public struct HostIssue: Identifiable, Sendable, Hashable {
     public init(
         id: String? = nil,
         hostID: String,
+        agent: AgentKind = .codex,
         kind: HostIssueKind,
         message: String,
         updatedAt: Date = Date()
     ) {
-        self.id = id ?? "\(hostID):\(kind.rawValue)"
+        self.id = id ?? "\(hostID):\(agent.rawValue):\(kind.rawValue)"
         self.hostID = hostID
+        self.agent = agent
         self.kind = kind
         self.message = message
         self.updatedAt = updatedAt
@@ -167,15 +185,18 @@ public struct DashboardSnapshot: Sendable, Hashable {
 
 public struct HostSnapshot: Sendable, Hashable {
     public let hostID: String
+    public let agent: AgentKind
     public let sessions: [SessionSnapshot]
     public let issues: [HostIssue]
 
     public init(
         hostID: String,
+        agent: AgentKind = .codex,
         sessions: [SessionSnapshot] = [],
         issues: [HostIssue] = []
     ) {
         self.hostID = hostID
+        self.agent = agent
         self.sessions = sessions
         self.issues = issues
     }

@@ -75,6 +75,60 @@ final class MonitoringEngineTests: XCTestCase {
         XCTAssertEqual(replacement?.counts.ready, 1)
     }
 
+    func testMergesCodexAndClaudeSourcesOnTheSameHost() async {
+        let engine = MonitoringEngine()
+        let date = Date(timeIntervalSince1970: 10)
+        await engine.replaceHost(
+            .init(
+                hostID: "host-a",
+                agent: .codex,
+                sessions: [
+                    .init(
+                        hostID: "host-a",
+                        agent: .codex,
+                        threadID: "codex",
+                        name: "Codex",
+                        updatedAt: date,
+                        status: .working
+                    ),
+                ]
+            )
+        )
+        await engine.replaceHost(
+            .init(
+                hostID: "host-a",
+                agent: .claudeCode,
+                sessions: [
+                    .init(
+                        hostID: "host-a",
+                        agent: .claudeCode,
+                        threadID: "claude",
+                        name: "Claude",
+                        updatedAt: date,
+                        status: .needsAttention
+                    ),
+                ]
+            )
+        )
+
+        var snapshot = await engine.currentSnapshot()
+        XCTAssertEqual(Set(snapshot.sessions.map(\.agent)), [.codex, .claudeCode])
+        XCTAssertEqual(
+            snapshot.counts,
+            .init(needsAttention: 1, working: 1, ready: 0)
+        )
+
+        await engine.markHostDisconnected(
+            hostID: "host-a",
+            agent: .claudeCode,
+            message: "Claude status unavailable",
+            at: date
+        )
+        snapshot = await engine.currentSnapshot()
+        XCTAssertEqual(snapshot.sessions.map(\.agent), [.codex])
+        XCTAssertEqual(snapshot.issues.map(\.agent), [.claudeCode])
+    }
+
     func testReconnectAndReconcilePolicyEdges() {
         let reconnect = ReconnectPolicy()
         XCTAssertEqual(reconnect.delay(forFailureCount: 1, jitterUnit: 0), 1)

@@ -116,6 +116,20 @@ final class SSHValidationTests: XCTestCase {
         XCTAssertEqual(discovery.arguments.suffix(2).first, profile.alias)
     }
 
+    func testBuildsReadOnlyClaudeStatusSnapshotPlan() throws {
+        let plan = try SSHCommandBuilder.claudeStatusSnapshotPlan(
+            alias: "build-host"
+        )
+
+        XCTAssertEqual(
+            plan.remoteCommand,
+            SSHCommandBuilder.claudeStatusSnapshotCommand
+        )
+        XCTAssertTrue(plan.remoteCommand.contains("VIBE_STATUS_CLAUDE_STATE_DIR"))
+        XCTAssertTrue(plan.remoteCommand.contains("printf '[]"))
+        XCTAssertEqual(plan.arguments.suffix(2).first, "build-host")
+    }
+
     func testExtractsLastSafeAbsoluteCodexPathFromDiscoveryOutput() {
         let output = """
         shell startup message

@@ -10,7 +10,8 @@ import VibeStatusCore
 actor LiveDashboardClient: DashboardClient {
     private struct Entry {
         let profile: HostProfile
-        let supervisor: ClusterSupervisor
+        let codexSupervisor: ClusterSupervisor
+        let claudeSupervisor: ClaudeStatusSupervisor
     }
 
     private let engine = MonitoringEngine()
@@ -53,8 +54,8 @@ actor LiveDashboardClient: DashboardClient {
     func refresh() async {
         guard isStarted, !isSuspended, networkAvailable else { return }
         for entry in entries.values {
-            await entry.supervisor.stop(removeHost: true)
-            await entry.supervisor.start()
+            await stop(entry)
+            await start(entry)
         }
     }
 
@@ -64,8 +65,8 @@ actor LiveDashboardClient: DashboardClient {
         else {
             return
         }
-        await entry.supervisor.stop(removeHost: true)
-        await entry.supervisor.start()
+        await stop(entry)
+        await start(entry)
     }
 
     func stop() async {
@@ -75,7 +76,7 @@ actor LiveDashboardClient: DashboardClient {
         let existing = entries.values
         entries.removeAll()
         for entry in existing {
-            await entry.supervisor.stop(removeHost: true)
+            await stop(entry)
         }
     }
 
@@ -83,7 +84,8 @@ actor LiveDashboardClient: DashboardClient {
         guard !isSuspended else { return }
         isSuspended = true
         for entry in entries.values {
-            await entry.supervisor.suspend()
+            await entry.codexSupervisor.suspend()
+            await entry.claudeSupervisor.suspend()
         }
     }
 
@@ -92,7 +94,7 @@ actor LiveDashboardClient: DashboardClient {
         isSuspended = false
         guard isStarted, networkAvailable else { return }
         for entry in entries.values {
-            await entry.supervisor.resume()
+            await start(entry)
         }
     }
 
@@ -163,13 +165,13 @@ actor LiveDashboardClient: DashboardClient {
 
         for (alias, entry) in entries
         where desired[alias] == nil || desired[alias] != entry.profile {
-            await entry.supervisor.stop(removeHost: true)
+            await stop(entry)
             entries.removeValue(forKey: alias)
         }
 
         for profile in enabledHosts where entries[profile.alias] == nil {
             let version = clientVersion
-            let supervisor = ClusterSupervisor(
+            let codexSupervisor = ClusterSupervisor(
                 hostID: profile.alias,
                 engine: engine,
                 sessionFactory: {
@@ -180,12 +182,19 @@ actor LiveDashboardClient: DashboardClient {
                     )
                 }
             )
-            entries[profile.alias] = Entry(
-                profile: profile,
-                supervisor: supervisor
+            let claudeSupervisor = ClaudeStatusSupervisor(
+                hostID: profile.alias,
+                engine: engine,
+                loader: SSHClaudeStatusLoader(alias: profile.alias)
             )
+            let entry = Entry(
+                profile: profile,
+                codexSupervisor: codexSupervisor,
+                claudeSupervisor: claudeSupervisor
+            )
+            entries[profile.alias] = entry
             if networkAvailable, !isSuspended {
-                await supervisor.start()
+                await start(entry)
             } else {
                 await engine.markHostDisconnected(
                     hostID: profile.alias,
@@ -218,16 +227,27 @@ actor LiveDashboardClient: DashboardClient {
         if available {
             guard isStarted, !isSuspended else { return }
             for entry in entries.values {
-                await entry.supervisor.resume()
+                await start(entry)
             }
         } else {
             for entry in entries.values {
-                await entry.supervisor.suspend()
+                await entry.codexSupervisor.suspend()
+                await entry.claudeSupervisor.suspend()
                 await engine.markHostDisconnected(
                     hostID: entry.profile.alias,
                     message: "\(entry.profile.alias) is paused while the network is offline."
                 )
             }
         }
+    }
+
+    private func start(_ entry: Entry) async {
+        await entry.codexSupervisor.start()
+        await entry.claudeSupervisor.start()
+    }
+
+    private func stop(_ entry: Entry) async {
+        await entry.codexSupervisor.stop(removeHost: true)
+        await entry.claudeSupervisor.stop(removeHost: true)
     }
 }

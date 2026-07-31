@@ -131,6 +131,7 @@ public struct ThreadProjector: Sendable {
                     .init(
                         id: "\(hostID):thread:\(thread.id):systemError",
                         hostID: hostID,
+                        agent: .codex,
                         kind: .systemError,
                         message: "\(displayName(for: thread)) reported a system error.",
                         updatedAt: updatedAt
@@ -141,6 +142,7 @@ public struct ThreadProjector: Sendable {
                     .init(
                         id: "\(hostID):thread:\(thread.id):unknownStatus",
                         hostID: hostID,
+                        agent: .codex,
                         kind: .compatibility,
                         message: "\(displayName(for: thread)) has unsupported status “\(value)”.",
                         updatedAt: updatedAt
@@ -148,7 +150,12 @@ public struct ThreadProjector: Sendable {
                 )
             }
         }
-        return .init(hostID: hostID, sessions: sessions, issues: issues)
+        return .init(
+            hostID: hostID,
+            agent: .codex,
+            sessions: sessions,
+            issues: issues
+        )
     }
 
     private func transientParentID(
@@ -221,6 +228,7 @@ public struct ThreadProjector: Sendable {
     ) -> SessionSnapshot {
         .init(
             hostID: hostID,
+            agent: .codex,
             threadID: thread.id,
             name: displayName(for: thread),
             cwd: thread.cwd,

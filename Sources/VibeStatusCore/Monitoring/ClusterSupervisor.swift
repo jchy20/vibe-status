@@ -57,7 +57,7 @@ public actor ClusterSupervisor {
         threads.removeAll()
         generation += 1
         if removeHost {
-            await engine.removeHost(hostID)
+            await engine.removeHost(hostID, agent: .codex)
         }
     }
 

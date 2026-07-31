@@ -18,6 +18,7 @@
 		35F23D6EAA8A6524B461E595 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = D76927A18BF6D88D8959C25D /* NIOWebSocket */; };
 		36163B44C1550538EC9A39CA /* VibeStatusCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 87CF96B21ADDE77ED5AC9DB0 /* VibeStatusCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		37004CC9F153774660526C2D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5D47B118BC011E3EEF806A /* SettingsView.swift */; };
+		4531D5A32FF3E9D78B2E853F /* ClaudeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6980F8CC1663CA2AA91D5952 /* ClaudeStatus.swift */; };
 		4A766838A88995E9BE5B904F /* CodexRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECDC06381B8B049704082AC /* CodexRPCClient.swift */; };
 		4DD8FA55E052957F695DBDF6 /* HostProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF7BE3A57A4C174F3FCD97B /* HostProfile.swift */; };
 		52E5B5C5DE22946C63DC76E5 /* MonitoringEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56F8F57137A902E60540FBE /* MonitoringEngineTests.swift */; };
@@ -37,6 +38,7 @@
 		858041B68798F6A119E567E1 /* CodexProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86DF7C990B2A9B2EB5EBA3D4 /* CodexProtocolModels.swift */; };
 		8DFE9353794BCAF26ED1A04C /* VibeStatusCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87CF96B21ADDE77ED5AC9DB0 /* VibeStatusCore.framework */; };
 		8EC632397B23F977525D1F36 /* ConfigurationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BBDF4E23A0412DC5D7D7B80 /* ConfigurationStoreTests.swift */; };
+		9B0B6C2FD9A2023A93F0A3C6 /* ClaudeStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A1970CE178AC9C3C6048B6 /* ClaudeStatusTests.swift */; };
 		9D5D4AF5DB73A45906BC63D5 /* DashboardPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B543312730EC80DEF49E93E /* DashboardPopoverView.swift */; };
 		A0CF1B5EA74A13554A384A56 /* JSONRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3067C1ED519B631F59CD8EDF /* JSONRPC.swift */; };
 		AAD59007D703757890098DE7 /* VibeStatusApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F60106AEEEDF5943D9A8AF /* VibeStatusApplication.swift */; };
@@ -138,6 +140,7 @@
 		48D7C7A3D5DF233CCC1956C2 /* ClusterSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterSupervisor.swift; sourceTree = "<group>"; };
 		5E7E48E2D656BB5CE67718D4 /* BoundedDiagnosticRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedDiagnosticRing.swift; sourceTree = "<group>"; };
 		686A1791EEF4EDF6294A72FE /* ProtocolRPCClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolRPCClientTests.swift; sourceTree = "<group>"; };
+		6980F8CC1663CA2AA91D5952 /* ClaudeStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStatus.swift; sourceTree = "<group>"; };
 		6BF7BE3A57A4C174F3FCD97B /* HostProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostProfile.swift; sourceTree = "<group>"; };
 		86DF7C990B2A9B2EB5EBA3D4 /* CodexProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProtocolModels.swift; sourceTree = "<group>"; };
 		87CF96B21ADDE77ED5AC9DB0 /* VibeStatusCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VibeStatusCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -156,6 +159,7 @@
 		C851938E25560EFF44897DE0 /* DashboardModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardModelTests.swift; sourceTree = "<group>"; };
 		CB469537F968B9BFBF68468A /* MonitoringSupervisorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoringSupervisorTests.swift; sourceTree = "<group>"; };
 		D08CFC404C9EFB935C9F0A8A /* SSHValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHValidationTests.swift; sourceTree = "<group>"; };
+		D1A1970CE178AC9C3C6048B6 /* ClaudeStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStatusTests.swift; sourceTree = "<group>"; };
 		DAA55E557DE8745C5E60FBE3 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		DDDE443E2D020C9B2DA83CC2 /* DashboardModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardModel.swift; sourceTree = "<group>"; };
 		EC7D4B18EE215337D924AD6A /* NIOWebSocketTextTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NIOWebSocketTextTransport.swift; sourceTree = "<group>"; };
@@ -264,6 +268,7 @@
 		9163DD5435DF69B12538CD69 /* Monitoring */ = {
 			isa = PBXGroup;
 			children = (
+				6980F8CC1663CA2AA91D5952 /* ClaudeStatus.swift */,
 				48D7C7A3D5DF233CCC1956C2 /* ClusterSupervisor.swift */,
 				B85A86CEB364C9AB182682C6 /* DomainModels.swift */,
 				9CE6CEA9F95F6A180CED8832 /* MonitoringEngine.swift */,
@@ -296,6 +301,7 @@
 		B1535295DC871379636FFB0E /* VibeStatusCoreTests */ = {
 			isa = PBXGroup;
 			children = (
+				D1A1970CE178AC9C3C6048B6 /* ClaudeStatusTests.swift */,
 				9BBDF4E23A0412DC5D7D7B80 /* ConfigurationStoreTests.swift */,
 				F56F8F57137A902E60540FBE /* MonitoringEngineTests.swift */,
 				3726441B764BFBF422A3393C /* MonitoringProjectionTests.swift */,
@@ -476,6 +482,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9B0B6C2FD9A2023A93F0A3C6 /* ClaudeStatusTests.swift in Sources */,
 				8EC632397B23F977525D1F36 /* ConfigurationStoreTests.swift in Sources */,
 				52E5B5C5DE22946C63DC76E5 /* MonitoringEngineTests.swift in Sources */,
 				CB2DEC8210C963BE1AFEA83C /* MonitoringProjectionTests.swift in Sources */,
@@ -494,6 +501,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				075DC852A05FF855E41FFC33 /* BoundedDiagnosticRing.swift in Sources */,
+				4531D5A32FF3E9D78B2E853F /* ClaudeStatus.swift in Sources */,
 				7D40154334F320E38718E428 /* ClusterSupervisor.swift in Sources */,
 				858041B68798F6A119E567E1 /* CodexProtocolModels.swift in Sources */,
 				4A766838A88995E9BE5B904F /* CodexRPCClient.swift in Sources */,

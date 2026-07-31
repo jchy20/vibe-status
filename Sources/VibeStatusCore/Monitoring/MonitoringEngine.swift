@@ -3,7 +3,12 @@ import Foundation
 /// Merges independently replaceable host snapshots. Counts are always derived
 /// from the merged session collection, never incremented as separate state.
 public actor MonitoringEngine {
-    private var hosts: [String: HostSnapshot] = [:]
+    private struct SourceID: Hashable {
+        let hostID: String
+        let agent: AgentKind
+    }
+
+    private var sources: [SourceID: HostSnapshot] = [:]
     private var continuations:
         [UUID: AsyncStream<DashboardSnapshot>.Continuation] = [:]
 
@@ -29,25 +34,34 @@ public actor MonitoringEngine {
     }
 
     public func replaceHost(_ snapshot: HostSnapshot) {
-        hosts[snapshot.hostID] = HostSnapshot(
+        let sourceID = SourceID(hostID: snapshot.hostID, agent: snapshot.agent)
+        sources[sourceID] = HostSnapshot(
             hostID: snapshot.hostID,
-            sessions: snapshot.sessions.filter { $0.hostID == snapshot.hostID },
-            issues: snapshot.issues.filter { $0.hostID == snapshot.hostID }
+            agent: snapshot.agent,
+            sessions: snapshot.sessions.filter {
+                $0.hostID == snapshot.hostID && $0.agent == snapshot.agent
+            },
+            issues: snapshot.issues.filter {
+                $0.hostID == snapshot.hostID && $0.agent == snapshot.agent
+            }
         )
         publish()
     }
 
     public func markHostDisconnected(
         hostID: String,
+        agent: AgentKind = .codex,
         message: String,
         at date: Date = Date()
     ) {
-        hosts[hostID] = .init(
+        sources[SourceID(hostID: hostID, agent: agent)] = .init(
             hostID: hostID,
+            agent: agent,
             sessions: [],
             issues: [
                 .init(
                     hostID: hostID,
+                    agent: agent,
                     kind: .disconnected,
                     message: message,
                     updatedAt: date
@@ -57,15 +71,25 @@ public actor MonitoringEngine {
         publish()
     }
 
-    public func removeHost(_ hostID: String) {
-        hosts.removeValue(forKey: hostID)
+    public func removeHost(
+        _ hostID: String,
+        agent: AgentKind? = nil
+    ) {
+        if let agent {
+            sources.removeValue(forKey: SourceID(hostID: hostID, agent: agent))
+        } else {
+            let sourceIDs = sources.keys.filter { $0.hostID == hostID }
+            for sourceID in sourceIDs {
+                sources.removeValue(forKey: sourceID)
+            }
+        }
         publish()
     }
 
     private func makeDashboardSnapshot() -> DashboardSnapshot {
         DashboardSnapshot(
-            sessions: hosts.values.flatMap(\.sessions),
-            issues: hosts.values.flatMap(\.issues)
+            sessions: sources.values.flatMap(\.sessions),
+            issues: sources.values.flatMap(\.issues)
         )
     }
 
