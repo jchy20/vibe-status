@@ -186,7 +186,11 @@ private struct SessionRow: View {
 
                     if let directoryName = session.workingDirectoryName {
                         Label(directoryName, systemImage: "folder")
+                            .font(.caption2.weight(.medium))
                             .lineLimit(1)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
                     }
 
                     Spacer(minLength: 0)
