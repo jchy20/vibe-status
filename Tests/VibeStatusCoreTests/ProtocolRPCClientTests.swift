@@ -84,6 +84,30 @@ final class ProtocolRPCClientTests: XCTestCase {
         await client.close()
     }
 
+    func testReadsAccountRateLimits() async throws {
+        let transport = AutoRespondingTransport()
+        let client = CodexRPCClient(
+            transport: transport,
+            clientInformation: .init(version: "1.0"),
+            requestTimeout: 1
+        )
+
+        try await client.connectAndInitialize()
+        let account = try await client.account()
+        let response = try await client.rateLimits()
+        let limits = try XCTUnwrap(response)
+        let usage = limits.usageSnapshots(
+            hostID: "host-a",
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        XCTAssertEqual(account.usageScopeID, "chatgpt:user@example.com")
+        XCTAssertEqual(usage.count, 1)
+        XCTAssertEqual(usage.first?.usedPercentage, 37)
+        XCTAssertEqual(usage.first?.windowDurationMinutes, 10_080)
+        await client.close()
+    }
+
     private func requestID(from text: String) throws -> JSONRPCID {
         guard case let .request(id, _, _) = try JSONRPCCodec().decode(text) else {
             throw TestFailure.unexpectedMessage
@@ -134,6 +158,26 @@ private actor AutoRespondingTransport: CodexTextTransport {
         let result: JSONValue
         if method == CodexClientMethod.loadedThreads.rawValue {
             result = .object(["data": .array([.string("root-1")])])
+        } else if method == CodexClientMethod.readAccount.rawValue {
+            result = .object([
+                "account": .object([
+                    "type": .string("chatgpt"),
+                    "email": .string("User@Example.com"),
+                    "planType": .string("pro"),
+                ]),
+                "requiresOpenaiAuth": .bool(true),
+            ])
+        } else if method == CodexClientMethod.readRateLimits.rawValue {
+            result = .object([
+                "rateLimits": .object([
+                    "limitId": .string("codex"),
+                    "primary": .object([
+                        "usedPercent": .number(37),
+                        "windowDurationMins": .number(10_080),
+                        "resetsAt": .number(1_800_000_000),
+                    ]),
+                ]),
+            ])
         } else {
             result = .object([:])
         }

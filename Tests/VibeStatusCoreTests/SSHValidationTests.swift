@@ -126,7 +126,8 @@ final class SSHValidationTests: XCTestCase {
             SSHCommandBuilder.claudeStatusSnapshotCommand
         )
         XCTAssertTrue(plan.remoteCommand.contains("VIBE_STATUS_CLAUDE_STATE_DIR"))
-        XCTAssertTrue(plan.remoteCommand.contains("printf '[]"))
+        XCTAssertTrue(plan.remoteCommand.contains("VIBE_STATUS_CLAUDE_USAGE_FILE"))
+        XCTAssertTrue(plan.remoteCommand.contains("printf '{\"sessions\":["))
         XCTAssertEqual(plan.arguments.suffix(2).first, "build-host")
     }
 

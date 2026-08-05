@@ -42,6 +42,11 @@ def parse_arguments() -> argparse.Namespace:
         type=Path,
         help="Path to claude_status_hook.py when installing.",
     )
+    parser.add_argument(
+        "--usage-source",
+        type=Path,
+        help="Path to claude_usage_statusline.py when installing.",
+    )
     return parser.parse_args()
 
 
@@ -134,6 +139,63 @@ def add_entries(
         groups.append(group)
 
 
+def is_vibe_status_line(value: Any, installed_usage: Path) -> bool:
+    if not isinstance(value, dict):
+        return False
+    command = value.get("command")
+    return isinstance(command, str) and str(installed_usage) in command
+
+
+def install_status_line(
+    settings: Dict[str, Any],
+    installed_usage: Path,
+    delegate_path: Path,
+    python_path: Path,
+) -> None:
+    existing = settings.get("statusLine")
+    if is_vibe_status_line(existing, installed_usage):
+        return
+
+    if existing is not None:
+        if not isinstance(existing, dict) or not isinstance(existing.get("command"), str):
+            raise SystemExit(
+                "Cannot preserve Claude settings: 'statusLine' is not a command."
+            )
+        write_json(delegate_path, existing)
+        replacement = dict(existing)
+    else:
+        try:
+            delegate_path.unlink()
+        except FileNotFoundError:
+            pass
+        replacement = {"type": "command"}
+
+    replacement["command"] = (
+        f"{shlex.quote(str(python_path))} {shlex.quote(str(installed_usage))}"
+    )
+    settings["statusLine"] = replacement
+
+
+def uninstall_status_line(
+    settings: Dict[str, Any],
+    installed_usage: Path,
+    delegate_path: Path,
+) -> None:
+    if is_vibe_status_line(settings.get("statusLine"), installed_usage):
+        try:
+            previous = load_settings(delegate_path)
+        except SystemExit:
+            previous = {}
+        if previous:
+            settings["statusLine"] = previous
+        else:
+            settings.pop("statusLine", None)
+    try:
+        delegate_path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def backup(path: Path) -> Optional[Path]:
     if not path.exists():
         return None
@@ -169,16 +231,30 @@ def main() -> int:
     arguments = parse_arguments()
     settings_path = Path.home() / ".claude/settings.json"
     installed_hook = Path.home() / ".local/lib/vibe-status/claude_status_hook.py"
+    installed_usage = Path.home() / ".local/lib/vibe-status/claude_usage_statusline.py"
+    delegate_path = (
+        Path.home()
+        / ".local/lib/vibe-status/claude_statusline_previous.json"
+    )
     settings_existed = settings_path.exists()
     settings = load_settings(settings_path)
     remove_existing_entries(settings, installed_hook)
 
     if arguments.uninstall:
+        uninstall_status_line(
+            settings,
+            installed_usage,
+            delegate_path,
+        )
         backup_path = backup(settings_path)
         if settings_existed:
             write_json(settings_path, settings)
         try:
             installed_hook.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            installed_usage.unlink()
         except FileNotFoundError:
             pass
         print("Removed Vibe Status Claude Code hooks.")
@@ -188,12 +264,24 @@ def main() -> int:
 
     if arguments.hook_source is None or not arguments.hook_source.is_file():
         raise SystemExit("--hook-source must point to claude_status_hook.py")
+    if arguments.usage_source is None or not arguments.usage_source.is_file():
+        raise SystemExit(
+            "--usage-source must point to claude_usage_statusline.py"
+        )
     installed_hook.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     shutil.copy2(arguments.hook_source, installed_hook)
     os.chmod(installed_hook, 0o700)
+    shutil.copy2(arguments.usage_source, installed_usage)
+    os.chmod(installed_usage, 0o700)
 
     python_path = Path(sys.executable).resolve()
     add_entries(settings, installed_hook, python_path)
+    install_status_line(
+        settings,
+        installed_usage,
+        delegate_path,
+        python_path,
+    )
     backup_path = backup(settings_path)
     write_json(settings_path, settings)
     print(f"Installed Claude Code status hook: {installed_hook}")

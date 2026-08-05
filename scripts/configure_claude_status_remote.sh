@@ -44,7 +44,7 @@ cleanup() {
   case "$remote_dir" in
     /tmp/vibe-status-claude.*)
       ssh -o BatchMode=yes -- "$alias_name" \
-        "rm -f '$remote_dir/claude_status_hook.py' '$remote_dir/configure_claude_status.py'; rmdir '$remote_dir'" \
+        "rm -f '$remote_dir/claude_status_hook.py' '$remote_dir/claude_usage_statusline.py' '$remote_dir/configure_claude_status.py'; rmdir '$remote_dir'" \
         >/dev/null 2>&1 || true
       ;;
   esac
@@ -53,6 +53,7 @@ trap cleanup EXIT INT TERM
 
 scp -q -- \
   "$repository_dir/Tools/claude_status_hook.py" \
+  "$repository_dir/Tools/claude_usage_statusline.py" \
   "$repository_dir/scripts/configure_claude_status.py" \
   "$alias_name:$remote_dir/"
 
@@ -61,5 +62,5 @@ if [ "$mode" = uninstall ]; then
     "python3 '$remote_dir/configure_claude_status.py' --uninstall"
 else
   ssh -o BatchMode=yes -- "$alias_name" \
-    "python3 '$remote_dir/configure_claude_status.py' --hook-source '$remote_dir/claude_status_hook.py'"
+    "python3 '$remote_dir/configure_claude_status.py' --hook-source '$remote_dir/claude_status_hook.py' --usage-source '$remote_dir/claude_usage_statusline.py'"
 fi

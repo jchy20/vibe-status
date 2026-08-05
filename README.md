@@ -95,10 +95,12 @@ small state records that Vibe Status reads over SSH. From this repository, run:
 ./scripts/configure_claude_status_remote.sh <ssh-alias>
 ```
 
-The installer copies a hook to `~/.local/lib/vibe-status/`, merges Vibe Status
-entries into `~/.claude/settings.json`, and creates a timestamped backup before
-changing an existing settings file. Other Claude Code settings and hooks are
-preserved.
+The installer copies lifecycle and usage helpers to
+`~/.local/lib/vibe-status/`, merges Vibe Status entries into
+`~/.claude/settings.json`, and creates a timestamped backup before changing an
+existing settings file. If you already use a custom Claude Code status line,
+Vibe Status delegates to it and restores it during uninstall. Other Claude Code
+settings and hooks are preserved.
 
 Claude Code watches its settings file for changes, so active sessions normally
 pick up the hooks without a restart. The next lifecycle event publishes the
@@ -132,11 +134,16 @@ requests, or cache transcripts. Codex task metadata and diagnostics remain in
 memory and are discarded when the app exits. Host configuration and preferences
 are stored locally in `UserDefaults`.
 
-The optional Claude Code hook stores only a session identifier, the first line
-of the latest submitted prompt, working directory, display state, and update
-timestamp under `~/.local/state/vibe-status/claude/` on the remote host. It
-removes the record on a normal Claude Code session exit. The app ignores records
-older than 24 hours.
+To avoid repeating account-wide Codex quota information for multiple hosts,
+the app reads the current ChatGPT account email and uses it only as an in-memory
+deduplication key. The email is not displayed, logged, or persisted.
+
+The optional Claude Code helpers store only a session identifier, the first line
+of the latest submitted prompt, working directory, display state, quota
+percentages and reset times, and update timestamps under
+`~/.local/state/vibe-status/` on the remote host. They do not read or store
+Claude credentials. Session records are removed on a normal Claude Code session
+exit, and the app ignores stale records.
 
 There is no analytics or telemetry.
 
@@ -196,6 +203,7 @@ Check the Claude Code helper scripts:
 ```sh
 python3 -m py_compile \
   Tools/claude_status_hook.py \
+  Tools/claude_usage_statusline.py \
   scripts/configure_claude_status.py
 sh -n scripts/configure_claude_status_remote.sh
 ```

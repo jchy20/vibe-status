@@ -59,6 +59,99 @@ final class ClaudeStatusTests: XCTestCase {
         XCTAssertEqual(snapshot.sessions.map(\.threadID), ["visible"])
     }
 
+    func testProjectsFiveHourAndWeeklyUsage() throws {
+        let data = Data(
+            """
+            {
+              "sessions": [],
+              "usage": {
+                "schema_version": 1,
+                "five_hour": {
+                  "used_percentage": 23.5,
+                  "resets_at": 1720003600
+                },
+                "seven_day": {
+                  "used_percentage": 41.2,
+                  "resets_at": 1720600000
+                },
+                "updated_at": 1720000000
+              }
+            }
+            """.utf8
+        )
+        let payload = try JSONDecoder().decode(ClaudeStatusPayload.self, from: data)
+        let snapshot = ClaudeStatusProjector().hostSnapshot(
+            hostID: "host-a",
+            records: payload.sessions,
+            usage: payload.usage,
+            now: now
+        )
+
+        XCTAssertEqual(snapshot.usage.map(\.windowDurationMinutes), [300, 10_080])
+        XCTAssertEqual(snapshot.usage.map(\.usedPercentage), [23.5, 41.2])
+        XCTAssertEqual(snapshot.usage.map(\.remainingPercentage), [76.5, 58.8])
+        XCTAssertEqual(Set(snapshot.usage.compactMap(\.accountScopeID)).count, 1)
+        XCTAssertTrue(snapshot.usage.allSatisfy { $0.agent == .claudeCode })
+    }
+
+    func testDeduplicatesSharedClaudeQuotaAcrossHosts() async {
+        let usage = ClaudeUsageRecord(
+            fiveHour: .init(
+                usedPercentage: 23,
+                resetsAt: now.timeIntervalSince1970 + 3_600
+            ),
+            sevenDay: .init(
+                usedPercentage: 41,
+                resetsAt: now.timeIntervalSince1970 + 600_000
+            ),
+            updatedAt: now.timeIntervalSince1970
+        )
+        let projector = ClaudeStatusProjector()
+        let engine = MonitoringEngine()
+        await engine.replaceHost(
+            projector.hostSnapshot(
+                hostID: "host-a",
+                records: [],
+                usage: usage,
+                now: now
+            )
+        )
+        await engine.replaceHost(
+            projector.hostSnapshot(
+                hostID: "host-b",
+                records: [],
+                usage: usage,
+                now: now
+            )
+        )
+
+        let dashboardUsage = await engine.currentSnapshot().usage
+        XCTAssertEqual(dashboardUsage.count, 2)
+        XCTAssertEqual(
+            Set(dashboardUsage.map(\.windowDurationMinutes)),
+            [300, 10_080]
+        )
+    }
+
+    func testKeepsPartialClaudeQuotaHostScoped() {
+        let usage = ClaudeUsageRecord(
+            sevenDay: .init(
+                usedPercentage: 41,
+                resetsAt: now.timeIntervalSince1970 + 600_000
+            ),
+            updatedAt: now.timeIntervalSince1970
+        )
+        let snapshot = ClaudeStatusProjector().hostSnapshot(
+            hostID: "host-a",
+            records: [],
+            usage: usage,
+            now: now
+        )
+
+        XCTAssertEqual(snapshot.usage.count, 1)
+        XCTAssertNil(snapshot.usage.first?.accountScopeID)
+    }
+
     func testUsesNewestRecordForDuplicateSession() {
         let records = [
             record(
@@ -147,7 +240,7 @@ private actor FakeClaudeStatusLoader: ClaudeStatusLoading {
         self.records = records
     }
 
-    func load() async throws -> [ClaudeStatusRecord] {
-        records
+    func load() async throws -> ClaudeStatusPayload {
+        ClaudeStatusPayload(sessions: records)
     }
 }

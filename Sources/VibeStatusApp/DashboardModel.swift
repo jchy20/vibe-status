@@ -118,6 +118,10 @@ final class DashboardModel {
         snapshot?.issues ?? []
     }
 
+    var usage: [UsageWindowSnapshot] {
+        snapshot?.usage ?? []
+    }
+
     var menuBarCounts: StatusCounts {
         snapshot?.counts ?? .zero
     }

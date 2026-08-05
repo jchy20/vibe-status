@@ -91,6 +91,17 @@ final class MonitoringEngineTests: XCTestCase {
                         updatedAt: date,
                         status: .working
                     ),
+                ],
+                usage: [
+                    .init(
+                        hostID: "host-a",
+                        agent: .codex,
+                        limitID: "codex",
+                        windowID: "primary",
+                        usedPercentage: 25,
+                        windowDurationMinutes: 10_080,
+                        resetsAt: date
+                    ),
                 ]
             )
         )
@@ -113,6 +124,7 @@ final class MonitoringEngineTests: XCTestCase {
 
         var snapshot = await engine.currentSnapshot()
         XCTAssertEqual(Set(snapshot.sessions.map(\.agent)), [.codex, .claudeCode])
+        XCTAssertEqual(snapshot.usage.first?.usedPercentage, 25)
         XCTAssertEqual(
             snapshot.counts,
             .init(needsAttention: 1, working: 1, ready: 0)
@@ -127,6 +139,74 @@ final class MonitoringEngineTests: XCTestCase {
         snapshot = await engine.currentSnapshot()
         XCTAssertEqual(snapshot.sessions.map(\.agent), [.codex])
         XCTAssertEqual(snapshot.issues.map(\.agent), [.claudeCode])
+    }
+
+    func testDeduplicatesUsageFromHostsSharingAnAccount() async {
+        let engine = MonitoringEngine()
+        let reset = Date(timeIntervalSince1970: 2_000)
+        await engine.replaceHost(
+            .init(
+                hostID: "host-a",
+                usage: [
+                    .init(
+                        hostID: "host-a",
+                        agent: .codex,
+                        accountScopeID: "chatgpt:shared@example.com",
+                        limitID: "codex",
+                        windowID: "primary",
+                        usedPercentage: 20,
+                        windowDurationMinutes: 10_080,
+                        resetsAt: reset,
+                        updatedAt: Date(timeIntervalSince1970: 10)
+                    ),
+                ]
+            )
+        )
+        await engine.replaceHost(
+            .init(
+                hostID: "host-b",
+                usage: [
+                    .init(
+                        hostID: "host-b",
+                        agent: .codex,
+                        accountScopeID: "chatgpt:shared@example.com",
+                        limitID: "codex",
+                        windowID: "primary",
+                        usedPercentage: 21,
+                        windowDurationMinutes: 10_080,
+                        resetsAt: reset,
+                        updatedAt: Date(timeIntervalSince1970: 11)
+                    ),
+                ]
+            )
+        )
+
+        let usage = await engine.currentSnapshot().usage
+        XCTAssertEqual(usage.count, 1)
+        XCTAssertEqual(usage.first?.hostID, "host-b")
+        XCTAssertEqual(usage.first?.usedPercentage, 21)
+
+        await engine.replaceHost(
+            .init(
+                hostID: "host-c",
+                usage: [
+                    .init(
+                        hostID: "host-c",
+                        agent: .codex,
+                        accountScopeID: "chatgpt:other@example.com",
+                        limitID: "codex",
+                        windowID: "primary",
+                        usedPercentage: 90,
+                        windowDurationMinutes: 10_080,
+                        resetsAt: reset,
+                        updatedAt: Date(timeIntervalSince1970: 12)
+                    ),
+                ]
+            )
+        )
+        let separateAccounts = await engine.currentSnapshot().usage
+        XCTAssertEqual(separateAccounts.count, 2)
+        XCTAssertEqual(Set(separateAccounts.map(\.usedPercentage)), [21, 90])
     }
 
     func testReconnectAndReconcilePolicyEdges() {

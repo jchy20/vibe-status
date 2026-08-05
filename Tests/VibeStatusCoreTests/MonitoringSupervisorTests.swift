@@ -78,6 +78,44 @@ final class MonitoringSupervisorTests: XCTestCase {
         await supervisor.stop()
     }
 
+    func testPublishesCodexRateLimitWindowWithoutAssumingFiveHours() async {
+        let session = FakeMonitoringSession(
+            threads: [:],
+            account: CodexAccountResponse(
+                account: .init(type: "chatgpt", email: "shared@example.com"),
+                requiresOpenAIAuth: true
+            ),
+            rateLimits: CodexRateLimitsResponse(
+                rateLimits: .init(
+                    limitID: "codex",
+                    primary: .init(
+                        usedPercent: 52,
+                        windowDurationMins: 10_080,
+                        resetsAt: 1_900_000_000
+                    )
+                )
+            )
+        )
+        let engine = MonitoringEngine()
+        let supervisor = ClusterSupervisor(
+            hostID: "host-a",
+            engine: engine,
+            sessionFactory: { session },
+            reconnectPolicy: .init(delays: [10], jitterFraction: 0),
+            reconcilePolicy: .init(interval: 60, jitterFraction: 0)
+        )
+
+        await supervisor.start()
+        let populated = await waitUntil {
+            await engine.currentSnapshot().usage.first?.usedPercentage == 52
+        }
+        XCTAssertTrue(populated)
+        let usage = await engine.currentSnapshot().usage
+        XCTAssertEqual(usage.map(\.windowDurationMinutes), [10_080])
+        XCTAssertEqual(usage.first?.accountScopeID, "chatgpt:shared@example.com")
+        await supervisor.stop()
+    }
+
     func testReconciliationRetainsSideConversationParentRelationship() async throws {
         let root = CodexThread(
             id: "root",
@@ -186,13 +224,24 @@ final class MonitoringSupervisorTests: XCTestCase {
 
 private actor FakeMonitoringSession: CodexMonitoringSession {
     private let threads: [String: CodexThread]
+    private let accountResponse: CodexAccountResponse
+    private let rateLimitsResponse: CodexRateLimitsResponse?
     private var unsubscribed: [String] = []
     private var events: [CodexMonitoringEvent] = []
     private var eventWaiter:
         CheckedContinuation<CodexMonitoringEvent?, Error>?
 
-    init(threads: [String: CodexThread]) {
+    init(
+        threads: [String: CodexThread],
+        account: CodexAccountResponse = .init(
+            account: nil,
+            requiresOpenAIAuth: false
+        ),
+        rateLimits: CodexRateLimitsResponse? = nil
+    ) {
         self.threads = threads
+        accountResponse = account
+        rateLimitsResponse = rateLimits
     }
 
     func connectAndInitialize() async throws {}
@@ -213,6 +262,14 @@ private actor FakeMonitoringSession: CodexMonitoringSession {
 
     func unsubscribe(threadID: String) async throws {
         unsubscribed.append(threadID)
+    }
+
+    func account() async throws -> CodexAccountResponse {
+        accountResponse
+    }
+
+    func rateLimits() async throws -> CodexRateLimitsResponse? {
+        rateLimitsResponse
     }
 
     func nextEvent() async throws -> CodexMonitoringEvent? {

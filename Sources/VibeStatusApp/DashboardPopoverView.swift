@@ -68,17 +68,12 @@ private struct DashboardHeader: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Vibe Status")
-                    .font(.headline)
-
-                Text(connectionSummary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
+        HStack(alignment: .top, spacing: 10) {
+            UsageSummary(
+                usage: model.usage,
+                hostLabel: model.hostLabel(for:)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 model.refresh()
@@ -107,10 +102,139 @@ private struct DashboardHeader: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
     }
+}
 
-    private var connectionSummary: String {
-        let count = model.enabledHostCount
-        return "\(count) enabled \(count == 1 ? "host" : "hosts")"
+private struct UsageSummary: View {
+    let usage: [UsageWindowSnapshot]
+    let hostLabel: (String) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Usage remaining")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if groups.isEmpty {
+                Text("Waiting for provider data…")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(groups) { group in
+                    HStack(spacing: 7) {
+                        Label(group.agent.displayName, systemImage: group.agent.systemImage)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+
+                        if groupCount(for: group.agent) > 1 {
+                            Text(groupLabel(group))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 2)
+
+                        ForEach(group.windows) { window in
+                            UsageMeter(window: window)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var groups: [UsageGroup] {
+        let values = Dictionary(grouping: usage) {
+            UsageGroupKey(
+                scopeID: $0.accountScopeID ?? "host:\($0.hostID)",
+                agent: $0.agent
+            )
+        }
+        return values.map { key, windows in
+            UsageGroup(
+                scopeID: key.scopeID,
+                hostIDs: Set(windows.map(\.hostID)),
+                agent: key.agent,
+                windows: windows.sorted {
+                    $0.windowDurationMinutes < $1.windowDurationMinutes
+                }
+            )
+        }.sorted {
+            if $0.agent != $1.agent {
+                return $0.agent == .codex
+            }
+            return $0.scopeID.localizedStandardCompare($1.scopeID) == .orderedAscending
+        }
+    }
+
+    private func groupCount(for agent: AgentKind) -> Int {
+        groups.count { $0.agent == agent }
+    }
+
+    private func groupLabel(_ group: UsageGroup) -> String {
+        guard let hostID = group.displayHostID else {
+            return "Shared account"
+        }
+        return hostLabel(hostID)
+    }
+}
+
+private struct UsageGroupKey: Hashable {
+    let scopeID: String
+    let agent: AgentKind
+}
+
+private struct UsageGroup: Identifiable {
+    let scopeID: String
+    let hostIDs: Set<String>
+    let agent: AgentKind
+    let windows: [UsageWindowSnapshot]
+
+    var id: String { "\(scopeID):\(agent.rawValue)" }
+
+    var displayHostID: String? {
+        hostIDs.count == 1 ? hostIDs.first : nil
+    }
+}
+
+private struct UsageMeter: View {
+    let window: UsageWindowSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 3) {
+                Text(windowLabel)
+                Text(window.remainingPercentage, format: .number.precision(.fractionLength(0)))
+                    + Text("%")
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+
+            ProgressView(value: window.remainingPercentage, total: 100)
+                .progressViewStyle(.linear)
+                .frame(width: 58)
+        }
+        .help(resetDescription)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(windowLabel), \(Int(window.remainingPercentage.rounded())) percent remaining, \(resetDescription)"
+        )
+    }
+
+    private var windowLabel: String {
+        let minutes = window.windowDurationMinutes
+        if minutes == 7 * 24 * 60 { return "Week" }
+        if minutes.isMultiple(of: 24 * 60) {
+            return "\(minutes / (24 * 60))d"
+        }
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60)h"
+        }
+        return "\(minutes)m"
+    }
+
+    private var resetDescription: String {
+        "Resets \(window.resetsAt.formatted(.relative(presentation: .named)))"
     }
 }
 

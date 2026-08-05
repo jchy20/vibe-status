@@ -28,6 +28,10 @@ hook = load_module(
     "claude_status_hook",
     REPOSITORY / "Tools/claude_status_hook.py",
 )
+usage = load_module(
+    "claude_usage_statusline",
+    REPOSITORY / "Tools/claude_usage_statusline.py",
+)
 configure = load_module(
     "configure_claude_status",
     REPOSITORY / "scripts/configure_claude_status.py",
@@ -35,6 +39,34 @@ configure = load_module(
 
 
 class ClaudeStatusHookTests(unittest.TestCase):
+    def test_status_line_captures_usage_without_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            usage_file = Path(directory) / "usage.json"
+            with mock.patch.dict(
+                os.environ,
+                {"VIBE_STATUS_CLAUDE_USAGE_FILE": str(usage_file)},
+                clear=False,
+            ):
+                usage.capture_usage(
+                    {
+                        "rate_limits": {
+                            "five_hour": {
+                                "used_percentage": 23.5,
+                                "resets_at": 1_800_000_000,
+                            },
+                            "seven_day": {
+                                "used_percentage": 41.2,
+                                "resets_at": 1_800_100_000,
+                            },
+                        }
+                    }
+                )
+
+            record = json.loads(usage_file.read_text(encoding="utf-8"))
+            self.assertEqual(record["schema_version"], 1)
+            self.assertEqual(record["five_hour"]["used_percentage"], 23.5)
+            self.assertEqual(record["seven_day"]["used_percentage"], 41.2)
+
     def test_lifecycle_transitions_and_removes_state_on_exit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.dict(
@@ -159,9 +191,15 @@ class ClaudeStatusHookTests(unittest.TestCase):
             home = Path(directory)
             settings_path = home / ".claude/settings.json"
             settings_path.parent.mkdir()
-            settings_path.write_text('{"theme":"dark"}\n', encoding="utf-8")
+            settings_path.write_text(
+                '{"theme":"dark","statusLine":{"type":"command",'
+                '"command":"existing-status"}}\n',
+                encoding="utf-8",
+            )
             hook_source = home / "source-hook.py"
             hook_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            usage_source = home / "source-usage.py"
+            usage_source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
             with mock.patch.object(Path, "home", return_value=home):
                 with redirect_stdout(io.StringIO()):
@@ -172,6 +210,8 @@ class ClaudeStatusHookTests(unittest.TestCase):
                             "configure_claude_status.py",
                             "--hook-source",
                             str(hook_source),
+                            "--usage-source",
+                            str(usage_source),
                         ],
                     ):
                         self.assertEqual(configure.main(), 0)
@@ -181,8 +221,17 @@ class ClaudeStatusHookTests(unittest.TestCase):
                 )
                 self.assertTrue(installed_hook.is_file())
                 self.assertTrue(installed_hook.stat().st_mode & stat.S_IXUSR)
+                installed_usage = (
+                    home / ".local/lib/vibe-status/claude_usage_statusline.py"
+                )
+                self.assertTrue(installed_usage.is_file())
+                self.assertTrue(installed_usage.stat().st_mode & stat.S_IXUSR)
                 settings = json.loads(settings_path.read_text(encoding="utf-8"))
                 self.assertEqual(settings["theme"], "dark")
+                self.assertIn(
+                    str(installed_usage),
+                    settings["statusLine"]["command"],
+                )
                 self.assertEqual(
                     sum(
                         1
@@ -203,8 +252,18 @@ class ClaudeStatusHookTests(unittest.TestCase):
                         self.assertEqual(configure.main(), 0)
 
             self.assertFalse(installed_hook.exists())
+            self.assertFalse(installed_usage.exists())
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
-            self.assertEqual(settings, {"theme": "dark"})
+            self.assertEqual(
+                settings,
+                {
+                    "theme": "dark",
+                    "statusLine": {
+                        "type": "command",
+                        "command": "existing-status",
+                    },
+                },
+            )
             self.assertEqual(
                 len(
                     list(

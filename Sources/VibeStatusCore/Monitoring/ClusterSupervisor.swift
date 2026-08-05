@@ -20,6 +20,8 @@ public actor ClusterSupervisor {
     private var activeSession: (any CodexMonitoringSession)?
     private var generation = 0
     private var threads: [String: CodexThread] = [:]
+    private var usage: [UsageWindowSnapshot] = []
+    private var usageAccountScopeID: String?
     private var reconciliationInProgress = false
     private var reconciliationRequested = false
 
@@ -55,6 +57,8 @@ public actor ClusterSupervisor {
         }
         activeSession = nil
         threads.removeAll()
+        usage.removeAll()
+        usageAccountScopeID = nil
         generation += 1
         if removeHost {
             await engine.removeHost(hostID, agent: .codex)
@@ -78,12 +82,18 @@ public actor ClusterSupervisor {
             let session = sessionFactory()
             activeSession = session
             threads.removeAll()
+            usage.removeAll()
+            usageAccountScopeID = nil
             let connectedAt = Date()
 
             do {
                 try await session.connectAndInitialize()
                 try Task.checkCancellation()
                 try await reconcile(
+                    session: session,
+                    generation: connectionGeneration
+                )
+                await refreshAccountAndUsage(
                     session: session,
                     generation: connectionGeneration
                 )
@@ -99,6 +109,8 @@ public actor ClusterSupervisor {
                 guard connectionGeneration == generation else { continue }
                 activeSession = nil
                 threads.removeAll()
+                usage.removeAll()
+                usageAccountScopeID = nil
                 await engine.markHostDisconnected(
                     hostID: hostID,
                     message: Self.issueMessage(hostID: hostID, error: error)
@@ -204,6 +216,11 @@ public actor ClusterSupervisor {
         case let .removed(threadID):
             threads.removeValue(forKey: threadID)
             await publish()
+        case .accountUpdated, .rateLimitsUpdated:
+            await refreshAccountAndUsage(
+                session: session,
+                generation: generation
+            )
         case .unknown:
             // High-volume and future notification methods are intentionally
             // ignored. The periodic loaded-list snapshot heals any drift.
@@ -322,12 +339,48 @@ public actor ClusterSupervisor {
     }
 
     private func publish() async {
+        let projected = projector.hostSnapshot(
+            hostID: hostID,
+            threads: Array(threads.values)
+        )
         await engine.replaceHost(
-            projector.hostSnapshot(
+            HostSnapshot(
                 hostID: hostID,
-                threads: Array(threads.values)
+                agent: .codex,
+                sessions: projected.sessions,
+                usage: usage,
+                issues: projected.issues
             )
         )
+    }
+
+    private func refreshUsage(
+        session: any CodexMonitoringSession,
+        generation: Int
+    ) async {
+        guard generation == self.generation else { return }
+        guard let response = try? await session.rateLimits() else {
+            return
+        }
+        guard generation == self.generation else { return }
+        usage = response.usageSnapshots(
+            hostID: hostID,
+            accountScopeID: usageAccountScopeID
+        )
+        await publish()
+    }
+
+    private func refreshAccountAndUsage(
+        session: any CodexMonitoringSession,
+        generation: Int
+    ) async {
+        guard generation == self.generation else { return }
+        do {
+            usageAccountScopeID = try await session.account().usageScopeID
+        } catch {
+            usageAccountScopeID = nil
+        }
+        await refreshUsage(session: session, generation: generation)
     }
 
     private static func issueMessage(

@@ -221,11 +221,174 @@ public struct CodexThreadReadResponse: Sendable, Decodable {
     }
 }
 
+public struct CodexAccount: Sendable, Hashable, Decodable {
+    public let type: String
+    public let email: String?
+    public let planType: String?
+
+    public init(type: String, email: String? = nil, planType: String? = nil) {
+        self.type = type
+        self.email = email
+        self.planType = planType
+    }
+}
+
+public struct CodexAccountResponse: Sendable, Hashable, Decodable {
+    public let account: CodexAccount?
+    public let requiresOpenAIAuth: Bool
+
+    public init(account: CodexAccount?, requiresOpenAIAuth: Bool) {
+        self.account = account
+        self.requiresOpenAIAuth = requiresOpenAIAuth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case account
+        case requiresOpenAIAuth = "requiresOpenaiAuth"
+    }
+
+    public var usageScopeID: String? {
+        guard account?.type == "chatgpt",
+              let email = account?.email?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              !email.isEmpty
+        else {
+            return nil
+        }
+        return "chatgpt:\(email)"
+    }
+}
+
+public struct CodexRateLimitWindow: Sendable, Hashable, Decodable {
+    public let usedPercent: Double
+    public let windowDurationMins: Double
+    public let resetsAt: TimeInterval
+
+    public init(
+        usedPercent: Double,
+        windowDurationMins: Double,
+        resetsAt: TimeInterval
+    ) {
+        self.usedPercent = usedPercent
+        self.windowDurationMins = windowDurationMins
+        self.resetsAt = resetsAt
+    }
+}
+
+public struct CodexRateLimitBucket: Sendable, Hashable, Decodable {
+    public let limitID: String
+    public let limitName: String?
+    public let primary: CodexRateLimitWindow?
+    public let secondary: CodexRateLimitWindow?
+
+    public init(
+        limitID: String,
+        limitName: String? = nil,
+        primary: CodexRateLimitWindow? = nil,
+        secondary: CodexRateLimitWindow? = nil
+    ) {
+        self.limitID = limitID
+        self.limitName = limitName
+        self.primary = primary
+        self.secondary = secondary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case limitID = "limitId"
+        case limitName
+        case primary
+        case secondary
+    }
+}
+
+public struct CodexRateLimitsResponse: Sendable, Hashable, Decodable {
+    public let rateLimits: CodexRateLimitBucket?
+    public let rateLimitsByLimitID: [String: CodexRateLimitBucket]?
+
+    public init(
+        rateLimits: CodexRateLimitBucket?,
+        rateLimitsByLimitID: [String: CodexRateLimitBucket]? = nil
+    ) {
+        self.rateLimits = rateLimits
+        self.rateLimitsByLimitID = rateLimitsByLimitID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rateLimits
+        case rateLimitsByLimitID = "rateLimitsByLimitId"
+    }
+
+    public func usageSnapshots(
+        hostID: String,
+        accountScopeID: String? = nil,
+        now: Date = Date()
+    ) -> [UsageWindowSnapshot] {
+        let buckets: [CodexRateLimitBucket]
+        if let rateLimits {
+            buckets = [rateLimits]
+        } else {
+            buckets = rateLimitsByLimitID?.values.sorted {
+                $0.limitID < $1.limitID
+            } ?? []
+        }
+
+        return buckets.flatMap { bucket in
+            [
+                bucket.primary.map {
+                    usageSnapshot(
+                        hostID: hostID,
+                        accountScopeID: accountScopeID,
+                        bucket: bucket,
+                        window: $0,
+                        windowID: "primary",
+                        now: now
+                    )
+                },
+                bucket.secondary.map {
+                    usageSnapshot(
+                        hostID: hostID,
+                        accountScopeID: accountScopeID,
+                        bucket: bucket,
+                        window: $0,
+                        windowID: "secondary",
+                        now: now
+                    )
+                },
+            ].compactMap { $0 }
+        }
+    }
+
+    private func usageSnapshot(
+        hostID: String,
+        accountScopeID: String?,
+        bucket: CodexRateLimitBucket,
+        window: CodexRateLimitWindow,
+        windowID: String,
+        now: Date
+    ) -> UsageWindowSnapshot {
+        UsageWindowSnapshot(
+            hostID: hostID,
+            agent: .codex,
+            accountScopeID: accountScopeID,
+            limitID: bucket.limitID,
+            windowID: windowID,
+            limitName: bucket.limitName,
+            usedPercentage: window.usedPercent,
+            windowDurationMinutes: Int(window.windowDurationMins.rounded()),
+            resetsAt: Date(timeIntervalSince1970: window.resetsAt),
+            updatedAt: now
+        )
+    }
+}
+
 public enum CodexMonitoringEvent: Sendable, Hashable {
     case started(CodexThread)
     case statusChanged(threadID: String, status: CodexThreadStatus)
     case nameUpdated(threadID: String, name: String?)
     case removed(threadID: String)
+    case accountUpdated
+    case rateLimitsUpdated
     case unknown(method: String)
 
     public init(notification: JSONRPCNotification) throws {
@@ -257,6 +420,10 @@ public enum CodexMonitoringEvent: Sendable, Hashable {
             }
             let value = try params.decode(ThreadIDParams.self)
             self = .removed(threadID: value.threadID)
+        case "account/rateLimits/updated":
+            self = .rateLimitsUpdated
+        case "account/updated":
+            self = .accountUpdated
         default:
             self = .unknown(method: notification.method)
         }

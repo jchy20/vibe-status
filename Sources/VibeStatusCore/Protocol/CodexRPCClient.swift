@@ -15,6 +15,8 @@ public enum CodexClientMethod: String, Sendable, CaseIterable {
     case loadedThreads = "thread/loaded/list"
     case readThread = "thread/read"
     case unsubscribeThread = "thread/unsubscribe"
+    case readAccount = "account/read"
+    case readRateLimits = "account/rateLimits/read"
 }
 
 public struct CodexClientInformation: Sendable, Hashable, Codable {
@@ -38,8 +40,18 @@ public protocol CodexMonitoringSession: Sendable {
     func loadedThreads(cursor: String?, limit: Int) async throws -> CodexLoadedThreadsResponse
     func readThread(id: String) async throws -> CodexThread
     func unsubscribe(threadID: String) async throws
+    func account() async throws -> CodexAccountResponse
+    func rateLimits() async throws -> CodexRateLimitsResponse?
     func nextEvent() async throws -> CodexMonitoringEvent?
     func close() async
+}
+
+public extension CodexMonitoringSession {
+    func account() async throws -> CodexAccountResponse {
+        .init(account: nil, requiresOpenAIAuth: false)
+    }
+
+    func rateLimits() async throws -> CodexRateLimitsResponse? { nil }
 }
 
 public actor CodexRPCClient: CodexMonitoringSession {
@@ -165,6 +177,34 @@ public actor CodexRPCClient: CodexMonitoringSession {
             .unsubscribeThread,
             params: .object(["threadId": .string(threadID)])
         )
+    }
+
+    public func account() async throws -> CodexAccountResponse {
+        let result = try await request(
+            .readAccount,
+            params: .object(["refreshToken": .bool(false)])
+        )
+        do {
+            return try result.decode(CodexAccountResponse.self)
+        } catch {
+            throw CodexProtocolError.malformedResponse(
+                method: CodexClientMethod.readAccount.rawValue
+            )
+        }
+    }
+
+    public func rateLimits() async throws -> CodexRateLimitsResponse? {
+        let result = try await request(
+            .readRateLimits,
+            params: .object([:])
+        )
+        do {
+            return try result.decode(CodexRateLimitsResponse.self)
+        } catch {
+            throw CodexProtocolError.malformedResponse(
+                method: CodexClientMethod.readRateLimits.rawValue
+            )
+        }
     }
 
     public func nextEvent() async throws -> CodexMonitoringEvent? {

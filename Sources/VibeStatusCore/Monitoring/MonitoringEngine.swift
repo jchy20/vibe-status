@@ -41,6 +41,9 @@ public actor MonitoringEngine {
             sessions: snapshot.sessions.filter {
                 $0.hostID == snapshot.hostID && $0.agent == snapshot.agent
             },
+            usage: snapshot.usage.filter {
+                $0.hostID == snapshot.hostID && $0.agent == snapshot.agent
+            },
             issues: snapshot.issues.filter {
                 $0.hostID == snapshot.hostID && $0.agent == snapshot.agent
             }
@@ -89,6 +92,7 @@ public actor MonitoringEngine {
     private func makeDashboardSnapshot() -> DashboardSnapshot {
         DashboardSnapshot(
             sessions: sources.values.flatMap(\.sessions),
+            usage: sources.values.flatMap(\.usage),
             issues: sources.values.flatMap(\.issues)
         )
     }

@@ -33,19 +33,24 @@ public enum SSHCommandBuilder {
     /// writes one JSON object per session using an atomic rename.
     public static let claudeStatusSnapshotCommand = """
     state_dir="${VIBE_STATUS_CLAUDE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vibe-status/claude}"
-    if [ ! -d "$state_dir" ]; then
-      printf '[]\\n'
-      exit 0
-    fi
-    printf '['
+    usage_file="${VIBE_STATUS_CLAUDE_USAGE_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/vibe-status/claude-usage.json}"
+    printf '{"sessions":['
     separator=''
-    for path in "$state_dir"/*.json; do
-      [ -f "$path" ] || continue
-      printf '%s' "$separator"
-      cat "$path" || exit 1
-      separator=','
-    done
-    printf ']\\n'
+    if [ -d "$state_dir" ]; then
+      for path in "$state_dir"/*.json; do
+        [ -f "$path" ] || continue
+        printf '%s' "$separator"
+        cat "$path" || exit 1
+        separator=','
+      done
+    fi
+    printf '],"usage":'
+    if [ -f "$usage_file" ]; then
+      cat "$usage_file" || exit 1
+    else
+      printf 'null'
+    fi
+    printf '}\\n'
     """
 
     public static func daemonProxyCommand(codexPath: String) throws -> String {
