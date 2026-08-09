@@ -6,7 +6,7 @@ struct OnboardingView: View {
     @State private var manualAlias = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Connect remote hosts")
@@ -17,21 +17,27 @@ struct OnboardingView: View {
                 }
                 Spacer()
             }
-            .padding(18)
-
-            Divider()
+            .padding(14)
+            .liquidGlassPanel(cornerRadius: 18, tint: Color.accentColor.opacity(0.045))
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("No passwords or private keys are stored. Authentication, ProxyJump, and host-key verification remain managed by OpenSSH.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(10)
-                        .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(.secondary)
+
+                        Text("No passwords or private keys are stored. Authentication, ProxyJump, and host-key verification remain managed by OpenSSH.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(11)
+                    .liquidGlassPanel(cornerRadius: 15, tint: Color.green.opacity(0.035))
 
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("SSH Config")
-                            .font(.subheadline.weight(.semibold))
+                        Label("SSH Config", systemImage: "terminal")
+                            .font(.headline)
 
                         if model.discoveredAliases.isEmpty {
                             Text("No literal SSH aliases were found. Add one manually below after configuring it in ~/.ssh/config.")
@@ -46,6 +52,7 @@ struct OnboardingView: View {
                                         Label(alias, systemImage: "plus")
                                     }
                                     .controlSize(.small)
+                                    .liquidGlassButton()
                                     .disabled(
                                         model.hosts.contains(where: {
                                             $0.alias.caseInsensitiveCompare(alias) == .orderedSame
@@ -57,16 +64,16 @@ struct OnboardingView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Remote Hosts")
-                            .font(.subheadline.weight(.semibold))
+                        Label("Remote Hosts", systemImage: "server.rack")
+                            .font(.headline)
 
                         if model.hosts.isEmpty {
                             Text("Select an SSH alias above or add one manually.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                                .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+                                .padding(11)
+                                .liquidGlassPanel(cornerRadius: 14)
                         } else {
                             ForEach($model.hosts) { $host in
                                 HostEditorRow(
@@ -99,13 +106,14 @@ struct OnboardingView: View {
                             .onSubmit(addManualAlias)
 
                         Button("Add", action: addManualAlias)
+                            .liquidGlassButton()
                             .disabled(manualAlias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
-                .padding(18)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
             }
-
-            Divider()
+            .scrollIndicators(.hidden)
 
             HStack {
                 Text("Test every enabled host first. Monitoring may start Codex’s existing app-server daemon, but never installs or updates Codex.")
@@ -117,10 +125,13 @@ struct OnboardingView: View {
                 Button("Start Monitoring") {
                     model.completeOnboarding()
                 }
-                .buttonStyle(.borderedProminent)
+                .liquidGlassButton(prominent: true)
                 .disabled(!model.canCompleteOnboarding)
             }
-            .padding(14)
+            .padding(12)
+            .liquidGlassPanel(cornerRadius: 16)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         }
         .task {
             model.discoverAliases()
@@ -192,7 +203,7 @@ struct HostEditorRow: View {
                 .padding(.leading, 25)
         }
         .padding(10)
-        .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+        .liquidGlassPanel(cornerRadius: 14, tint: Color.accentColor.opacity(0.035))
         .onChange(of: host.alias) { _, _ in invalidate() }
         .onChange(of: host.codexPath) { _, _ in invalidate() }
         .onChange(of: host.isEnabled) { _, _ in invalidate() }

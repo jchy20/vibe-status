@@ -31,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if popover.isShown {
+            makePopoverKey()
+        }
+    }
+
     @objc
     private func workspaceWillSleep(_ notification: Notification) {
         model.suspend()
@@ -51,9 +57,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApplication.shared.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            makePopoverKey()
         }
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        makePopoverKey()
+    }
+
+    private func makePopoverKey() {
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     private func configureStatusItem() {

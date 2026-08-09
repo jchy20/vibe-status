@@ -5,18 +5,21 @@ struct DashboardPopoverView: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        Group {
-            switch model.destination {
-            case .dashboard:
-                DashboardView(model: model)
-            case .onboarding:
-                OnboardingView(model: model)
-            case .settings:
-                SettingsView(model: model)
+        ZStack {
+            LiquidGlassBackdrop()
+
+            Group {
+                switch model.destination {
+                case .dashboard:
+                    DashboardView(model: model)
+                case .onboarding:
+                    OnboardingView(model: model)
+                case .settings:
+                    SettingsView(model: model)
+                }
             }
         }
         .frame(width: 400, height: 560)
-        .background(.background)
     }
 }
 
@@ -24,83 +27,97 @@ private struct DashboardView: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            DashboardHeader(model: model)
-            Divider()
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                UsageSummary(
+                    usage: model.usage,
+                    hostLabel: model.hostLabel(for:)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .liquidGlassPanel(
+                    cornerRadius: 18,
+                    tint: Color.accentColor.opacity(0.05)
+                )
 
-            if model.sessions.isEmpty && !model.hasIssues {
-                ContentUnavailableView {
-                    Label("No Loaded Tasks", systemImage: "terminal")
-                } description: {
-                    Text("Loaded Codex and Claude Code tasks on your enabled remote hosts will appear here.")
-                } actions: {
-                    Button("Refresh") {
-                        model.refresh()
+                if model.sessions.isEmpty && !model.hasIssues {
+                    ContentUnavailableView {
+                        Label("No Loaded Tasks", systemImage: "terminal")
+                    } description: {
+                        Text("Loaded Codex and Claude Code tasks on your enabled remote hosts will appear here.")
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        if model.hasIssues {
-                            IssuesSection(model: model)
-                        }
+                    .padding(18)
+                    .frame(maxWidth: .infinity)
+                    .liquidGlassPanel(cornerRadius: 20)
+                } else {
+                    StatusOverview(model: model)
 
-                        ForEach(TaskDisplayStatus.allCases, id: \.self) { status in
-                            SessionGroup(
-                                status: status,
-                                sessions: model.sessions(for: status),
-                                hostLabel: model.hostLabel(for:)
-                            )
-                        }
+                    if model.hasIssues {
+                        IssuesSection(model: model)
                     }
-                    .padding(14)
+
+                    ForEach(nonemptyStatuses, id: \.self) { status in
+                        SessionGroup(
+                            status: status,
+                            sessions: model.sessions(for: status),
+                            hostLabel: model.hostLabel(for:)
+                        )
+                    }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
+        }
+        .scrollIndicators(.hidden)
+        .dashboardScrollSurface()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            DashboardFooter(model: model)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+    }
 
-            Divider()
-            DashboardFooter()
+    private var nonemptyStatuses: [TaskDisplayStatus] {
+        TaskDisplayStatus.allCases.filter { !model.sessions(for: $0).isEmpty }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func dashboardScrollSurface() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollContentBackground(.hidden)
+                .scrollEdgeEffectHidden(true, for: [.top, .bottom])
+        } else {
+            scrollContentBackground(.hidden)
         }
     }
 }
 
-private struct DashboardHeader: View {
-    @Bindable var model: DashboardModel
+private struct GlassIconButton: View {
+    let systemName: String
+    let help: String
+    var isDisabled = false
+    var rotation: Double = 0
+    let action: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            UsageSummary(
-                usage: model.usage,
-                hostLabel: model.hostLabel(for:)
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                model.refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .rotationEffect(model.isRefreshing ? .degrees(360) : .zero)
-                    .animation(
-                        model.isRefreshing
-                            ? .linear(duration: 0.8).repeatForever(autoreverses: false)
-                            : .default,
-                        value: model.isRefreshing
-                    )
-            }
-            .buttonStyle(.borderless)
-            .help("Refresh all remote hosts")
-            .disabled(model.isRefreshing)
-
-            Button {
-                model.showSettings()
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("Settings")
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 15, height: 15)
+                .rotationEffect(.degrees(rotation))
+                .animation(
+                    isDisabled
+                        ? .linear(duration: 0.8).repeatForever(autoreverses: false)
+                        : .default,
+                    value: rotation
+                )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .liquidGlassButton(isCircular: true)
+        .help(help)
+        .disabled(isDisabled)
     }
 }
 
@@ -109,10 +126,9 @@ private struct UsageSummary: View {
     let hostLabel: (String) -> String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Usage remaining")
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Usage remaining", systemImage: "gauge.with.dots.needle.50percent")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
 
             if groups.isEmpty {
                 Text("Waiting for provider data…")
@@ -120,7 +136,7 @@ private struct UsageSummary: View {
                     .foregroundStyle(.tertiary)
             } else {
                 ForEach(groups) { group in
-                    HStack(spacing: 7) {
+                    HStack(spacing: 8) {
                         Label(group.agent.displayName, systemImage: group.agent.systemImage)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
@@ -134,8 +150,10 @@ private struct UsageSummary: View {
 
                         Spacer(minLength: 2)
 
-                        ForEach(group.windows) { window in
-                            UsageMeter(window: window)
+                        HStack(spacing: 9) {
+                            ForEach(group.windows) { window in
+                                UsageMeter(window: window)
+                            }
                         }
                     }
                 }
@@ -201,18 +219,19 @@ private struct UsageMeter: View {
     let window: UsageWindowSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 3) {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 4) {
                 Text(windowLabel)
-                Text(window.remainingPercentage, format: .number.precision(.fractionLength(0)))
-                    + Text("%")
+                    .foregroundStyle(.secondary)
+                Text(percentageLabel)
+                    .fontWeight(.semibold)
             }
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
 
             ProgressView(value: window.remainingPercentage, total: 100)
                 .progressViewStyle(.linear)
-                .frame(width: 58)
+                .tint(meterColor)
+                .frame(width: 76)
         }
         .help(resetDescription)
         .accessibilityElement(children: .ignore)
@@ -233,8 +252,64 @@ private struct UsageMeter: View {
         return "\(minutes)m"
     }
 
+    private var percentageLabel: String {
+        "\(Int(window.remainingPercentage.rounded()))%"
+    }
+
+    private var meterColor: Color {
+        switch window.remainingPercentage {
+        case ..<15: .red
+        case ..<35: .orange
+        default: .accentColor
+        }
+    }
+
     private var resetDescription: String {
         "Resets \(window.resetsAt.formatted(.relative(presentation: .named)))"
+    }
+}
+
+private struct StatusOverview: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(TaskDisplayStatus.allCases, id: \.self) { status in
+                StatusSummaryCard(
+                    status: status,
+                    count: model.sessions(for: status).count
+                )
+            }
+        }
+    }
+}
+
+private struct StatusSummaryCard: View {
+    let status: TaskDisplayStatus
+    let count: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                StatusDot(color: status.color, size: 7)
+
+                Text(status.displayName)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+
+            Text("\(count)")
+                .font(.title2.weight(.semibold).monospacedDigit())
+                .contentTransition(.numericText())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .liquidGlassPanel(cornerRadius: 15, tint: status.color.opacity(0.06))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(status.displayName), \(count) tasks")
     }
 }
 
@@ -244,16 +319,14 @@ private struct SessionGroup: View {
     let hostLabel: (String) -> String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(status.color)
-                    .frame(width: 8, height: 8)
+                StatusDot(color: status.color, size: 8)
 
                 Text(status.displayName)
                     .font(.subheadline.weight(.semibold))
 
-                Text("\(sessions.count)")
+                Text("\(sessions.count) \(sessions.count == 1 ? "task" : "tasks")")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
 
@@ -262,17 +335,14 @@ private struct SessionGroup: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(status.displayName), \(sessions.count) tasks")
 
-            if sessions.isEmpty {
-                Text("None")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 14)
-            } else {
-                ForEach(sessions) { session in
-                    SessionRow(
-                        session: session,
-                        hostLabel: hostLabel(session.hostID)
-                    )
+            LiquidGlassContainer(spacing: 10) {
+                VStack(spacing: 10) {
+                    ForEach(sessions) { session in
+                        SessionRow(
+                            session: session,
+                            hostLabel: hostLabel(session.hostID)
+                        )
+                    }
                 }
             }
         }
@@ -285,36 +355,24 @@ private struct SessionRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(session.status.color)
-                .frame(width: 8, height: 8)
-                .padding(.top, 5)
+            StatusDot(color: session.status.color, size: 8)
+                .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(session.name)
-                    .font(.body.weight(.medium))
+                    .font(.callout.weight(.semibold))
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
-                    Text(hostLabel)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
+                    MetadataPill(hostLabel)
 
-                    Label(session.agent.displayName, systemImage: session.agent.systemImage)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
+                    MetadataPill(
+                        session.agent.displayName,
+                        systemImage: session.agent.systemImage
+                    )
 
                     if let directoryName = session.workingDirectoryName {
-                        Label(directoryName, systemImage: "folder")
-                            .font(.caption2.weight(.medium))
-                            .lineLimit(1)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
+                        MetadataPill(directoryName, systemImage: "folder")
                     }
 
                     Spacer(minLength: 0)
@@ -328,8 +386,11 @@ private struct SessionRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(9)
-        .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(11)
+        .liquidGlassPanel(
+            cornerRadius: 15,
+            tint: session.status.color.opacity(0.055)
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -339,6 +400,47 @@ private struct SessionRow: View {
             + "\(session.status.displayName), \(hostLabel)"
         guard session.status != .ready else { return summary }
         return "\(summary), updated \(session.updatedAt.formatted(.relative(presentation: .named)))"
+    }
+}
+
+private struct MetadataPill: View {
+    let title: String
+    let systemImage: String?
+
+    init(_ title: String, systemImage: String? = nil) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Group {
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+            } else {
+                Text(title)
+            }
+        }
+        .font(.caption2.weight(.medium))
+        .lineLimit(1)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Color.primary.opacity(0.065), in: Capsule())
+    }
+}
+
+private struct StatusDot: View {
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .background {
+                Circle()
+                    .fill(color.opacity(0.16))
+                    .frame(width: size + 7, height: size + 7)
+            }
     }
 }
 
@@ -390,17 +492,41 @@ private struct IssueRow: View {
             if let retry {
                 Button("Retry", action: retry)
                     .controlSize(.small)
+                    .liquidGlassButton()
             }
         }
-        .padding(9)
-        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+        .liquidGlassPanel(cornerRadius: 14, tint: Color.orange.opacity(0.09))
     }
 }
 
 private struct DashboardFooter: View {
+    @Bindable var model: DashboardModel
+
     var body: some View {
-        HStack {
+        HStack(spacing: 7) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .foregroundStyle(.green)
+
+            Text(
+                "Monitoring \(model.sessions.count) "
+                    + "\(model.sessions.count == 1 ? "task" : "tasks")"
+            )
+
             Spacer()
+
+            GlassIconButton(
+                systemName: "arrow.clockwise",
+                help: "Refresh all remote hosts",
+                isDisabled: model.isRefreshing,
+                rotation: model.isRefreshing ? 360 : 0
+            ) {
+                model.refresh()
+            }
+
+            GlassIconButton(systemName: "gearshape", help: "Settings") {
+                model.showSettings()
+            }
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
@@ -409,8 +535,136 @@ private struct DashboardFooter: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .liquidGlassPanel(cornerRadius: 14)
+    }
+}
+
+struct LiquidGlassBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+
+            LinearGradient(
+                colors: [
+                    Color.blue.opacity(colorScheme == .dark ? 0.22 : 0.13),
+                    Color.clear,
+                    Color.purple.opacity(colorScheme == .dark ? 0.16 : 0.08),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color.cyan.opacity(colorScheme == .dark ? 0.13 : 0.09))
+                .frame(width: 250, height: 250)
+                .blur(radius: 65)
+                .offset(x: 150, y: -245)
+
+            Circle()
+                .fill(Color.indigo.opacity(colorScheme == .dark ? 0.14 : 0.07))
+                .frame(width: 240, height: 240)
+                .blur(radius: 70)
+                .offset(x: -170, y: 235)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct LiquidGlassContainer<Content: View>: View {
+    let spacing: CGFloat?
+    @ViewBuilder let content: Content
+
+    init(spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) {
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct LiquidGlassPanelModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    let tint: Color?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(tint), in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay {
+                    shape.stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+                }
+                .shadow(color: Color.black.opacity(0.08), radius: 12, y: 5)
+        }
+    }
+}
+
+private struct LiquidGlassButtonModifier: ViewModifier {
+    let isCircular: Bool
+    let prominent: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if prominent {
+                content
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(isCircular ? .circle : .capsule)
+            } else {
+                content
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(isCircular ? .circle : .capsule)
+            }
+        } else {
+            if prominent {
+                content
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(isCircular ? .circle : .capsule)
+            } else {
+                content
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(isCircular ? .circle : .capsule)
+            }
+        }
+    }
+}
+
+extension View {
+    func liquidGlassPanel(
+        cornerRadius: CGFloat = 16,
+        tint: Color? = nil
+    ) -> some View {
+        modifier(LiquidGlassPanelModifier(cornerRadius: cornerRadius, tint: tint))
+    }
+
+    func liquidGlassButton(
+        isCircular: Bool = false,
+        prominent: Bool = false
+    ) -> some View {
+        modifier(
+            LiquidGlassButtonModifier(
+                isCircular: isCircular,
+                prominent: prominent
+            )
+        )
     }
 }
 
