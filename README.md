@@ -28,6 +28,8 @@ conversations do not clutter the list. Each task is labeled with its agent.
 - One or more literal host aliases in `~/.ssh/config`
 - Non-interactive SSH authentication using a key or SSH agent
 - Codex CLI 0.145.0 or a compatible newer version on each remote host
+- `lslocks` on remote Linux hosts to include Codex tasks started outside Vibe
+  Status's managed app-server
 - Optional: Claude Code with lifecycle-hook support and Python 3.8 or newer on
   hosts where Claude Code status should be monitored (tested with Claude Code
   2.1.212)
@@ -134,6 +136,18 @@ requests, or cache transcripts. Codex task metadata and diagnostics remain in
 memory and are discarded when the app exits. Host configuration and preferences
 are stored locally in `UserDefaults`.
 
+To find Codex tasks started independently with commands such as `codex resume`,
+Vibe Status also checks which canonical task IDs have an active writer lock. The
+remote check is read-only and returns task IDs only. Names and latest turn states
+then come from Codex's metadata APIs; Vibe Status does not read the Codex state
+database or rollout files.
+
+For tasks owned by an independent Codex process, the available cross-process
+metadata reports working versus ready but does not expose whether an active turn
+is specifically waiting for approval or user input. Those tasks therefore appear
+as working until their turn finishes; managed app-server tasks retain all three
+status states.
+
 To avoid repeating account-wide Codex quota information for multiple hosts,
 the app reads the current ChatGPT account email and uses it only as an in-memory
 deduplication key. The email is not displayed, logged, or persisted.
@@ -176,6 +190,19 @@ In the host settings, enter the absolute path returned by this command:
 ```sh
 ssh <ssh-alias> 'command -v codex'
 ```
+
+### A standalone Codex task does not appear
+
+Independently launched Codex tasks currently require `lslocks`, normally
+provided by util-linux on remote Linux hosts. Confirm it is available:
+
+```sh
+ssh <ssh-alias> 'command -v lslocks'
+```
+
+If it is unavailable, or the remote host is not Linux, Vibe Status continues
+showing tasks owned by its managed app-server; only independently launched
+tasks are omitted.
 
 ### Claude Code tasks do not appear
 

@@ -180,7 +180,10 @@ actor LiveDashboardClient: DashboardClient {
                         transport: transport,
                         clientInformation: .init(version: version)
                     )
-                }
+                },
+                standaloneSessionDiscovery: SSHStandaloneCodexSessionDiscoverer(
+                    alias: profile.alias
+                )
             )
             let claudeSupervisor = ClaudeStatusSupervisor(
                 hostID: profile.alias,

@@ -13,6 +13,15 @@ final class ProtocolModelsTests: XCTestCase {
         XCTAssertEqual(response.nextCursor, "page-2")
     }
 
+    func testRejectsMalformedLoadedThreadPageInsteadOfReportingNoTasks() {
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                CodexLoadedThreadsResponse.self,
+                from: Data(#"{"data":{"unexpected":true}}"#.utf8)
+            )
+        )
+    }
+
     func testDecodesActiveStatusAndUnknownFields() throws {
         let thread = try JSONDecoder().decode(
             CodexThread.self,
@@ -59,6 +68,18 @@ final class ProtocolModelsTests: XCTestCase {
             from: Data(#"{"type":"pausedByScheduler","newData":123}"#.utf8)
         )
         XCTAssertEqual(status.kind, .unknown("pausedByScheduler"))
+    }
+
+    func testDecodesLatestPersistedTurnWithoutItems() throws {
+        let response = try JSONDecoder().decode(
+            CodexThreadTurnsResponse.self,
+            from: Data(
+                #"{"data":[{"id":"turn-1","status":"inProgress","items":[]}]}"#.utf8
+            )
+        )
+
+        XCTAssertEqual(response.data.first?.id, "turn-1")
+        XCTAssertEqual(response.data.first?.status, .inProgress)
     }
 
     func testMapsKnownThreadNotifications() throws {

@@ -12,8 +12,10 @@ public protocol CodexTextTransport: Sendable {
 public enum CodexClientMethod: String, Sendable, CaseIterable {
     case initialize
     case initialized
+    case listThreads = "thread/list"
     case loadedThreads = "thread/loaded/list"
     case readThread = "thread/read"
+    case listThreadTurns = "thread/turns/list"
     case unsubscribeThread = "thread/unsubscribe"
     case readAccount = "account/read"
     case readRateLimits = "account/rateLimits/read"
@@ -37,8 +39,10 @@ public struct CodexClientInformation: Sendable, Hashable, Codable {
 
 public protocol CodexMonitoringSession: Sendable {
     func connectAndInitialize() async throws
+    func listThreads(cursor: String?, limit: Int) async throws -> CodexThreadListResponse
     func loadedThreads(cursor: String?, limit: Int) async throws -> CodexLoadedThreadsResponse
     func readThread(id: String) async throws -> CodexThread
+    func latestTurnStatus(threadID: String) async throws -> CodexTurnStatus?
     func unsubscribe(threadID: String) async throws
     func account() async throws -> CodexAccountResponse
     func rateLimits() async throws -> CodexRateLimitsResponse?
@@ -47,6 +51,21 @@ public protocol CodexMonitoringSession: Sendable {
 }
 
 public extension CodexMonitoringSession {
+    func listThreads(
+        cursor: String?,
+        limit: Int
+    ) async throws -> CodexThreadListResponse {
+        throw CodexProtocolError.unsupportedOutboundMethod(
+            CodexClientMethod.listThreads.rawValue
+        )
+    }
+
+    func latestTurnStatus(threadID: String) async throws -> CodexTurnStatus? {
+        throw CodexProtocolError.unsupportedOutboundMethod(
+            CodexClientMethod.listThreadTurns.rawValue
+        )
+    }
+
     func account() async throws -> CodexAccountResponse {
         .init(account: nil, requiresOpenAIAuth: false)
     }
@@ -124,6 +143,11 @@ public actor CodexRPCClient: CodexMonitoringSession {
         let params = try JSONValue.encode(
             InitializeParams(
                 clientInfo: clientInformation,
+                capabilities: .init(
+                    experimentalApi: true,
+                    requestAttestation: false,
+                    optOutNotificationMethods: optOutNotificationMethods
+                ),
                 optOutNotificationMethods: optOutNotificationMethods
             )
         )
@@ -153,6 +177,35 @@ public actor CodexRPCClient: CodexMonitoringSession {
         }
     }
 
+    public func listThreads(
+        cursor: String?,
+        limit: Int = 100
+    ) async throws -> CodexThreadListResponse {
+        var params: [String: JSONValue] = [
+            "limit": .number(Double(limit)),
+            "sortKey": .string("recency_at"),
+            "sortDirection": .string("desc"),
+            // Standalone presence is established independently from writer
+            // locks, so indexed metadata is sufficient and avoids a rollout
+            // scan-and-repair on every reconciliation.
+            "useStateDbOnly": .bool(true),
+            // An empty list asks Codex for all interactive source kinds while
+            // keeping spawned subagents out of the persisted root catalog.
+            "sourceKinds": .array([]),
+        ]
+        if let cursor {
+            params["cursor"] = .string(cursor)
+        }
+        let result = try await request(.listThreads, params: .object(params))
+        do {
+            return try result.decode(CodexThreadListResponse.self)
+        } catch {
+            throw CodexProtocolError.malformedResponse(
+                method: CodexClientMethod.listThreads.rawValue
+            )
+        }
+    }
+
     public func readThread(id: String) async throws -> CodexThread {
         let result = try await request(
             .readThread,
@@ -170,6 +223,27 @@ public actor CodexRPCClient: CodexMonitoringSession {
         throw CodexProtocolError.malformedResponse(
             method: CodexClientMethod.readThread.rawValue
         )
+    }
+
+    public func latestTurnStatus(
+        threadID: String
+    ) async throws -> CodexTurnStatus? {
+        let result = try await request(
+            .listThreadTurns,
+            params: .object([
+                "threadId": .string(threadID),
+                "limit": .number(1),
+                "sortDirection": .string("desc"),
+                "itemsView": .string("notLoaded"),
+            ])
+        )
+        do {
+            return try result.decode(CodexThreadTurnsResponse.self).data.first?.status
+        } catch {
+            throw CodexProtocolError.malformedResponse(
+                method: CodexClientMethod.listThreadTurns.rawValue
+            )
+        }
     }
 
     public func unsubscribe(threadID: String) async throws {
@@ -422,5 +496,15 @@ public actor CodexRPCClient: CodexMonitoringSession {
 
 private struct InitializeParams: Encodable {
     let clientInfo: CodexClientInformation
+    let capabilities: InitializeCapabilities
+    /// Codex 0.145 used this top-level field. Keep sending it while newer
+    /// servers read the nested capability so the passive-observer contract is
+    /// preserved across both protocol generations.
+    let optOutNotificationMethods: [String]
+}
+
+private struct InitializeCapabilities: Encodable {
+    let experimentalApi: Bool
+    let requestAttestation: Bool
     let optOutNotificationMethods: [String]
 }

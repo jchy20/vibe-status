@@ -16,6 +16,30 @@ final class ProtocolRPCClientTests: XCTestCase {
         XCTAssertEqual(page.data, ["root-1"])
 
         let sent = await transport.sentMessages()
+        let initializeRequest = try XCTUnwrap(sent.first { text in
+            text.contains(#""method":"initialize""#)
+        })
+        let initializeObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(initializeRequest.utf8))
+                as? [String: Any]
+        )
+        let initializeParams = try XCTUnwrap(
+            initializeObject["params"] as? [String: Any]
+        )
+        let capabilities = try XCTUnwrap(
+            initializeParams["capabilities"] as? [String: Any]
+        )
+        XCTAssertEqual(capabilities["experimentalApi"] as? Bool, true)
+        XCTAssertEqual(capabilities["requestAttestation"] as? Bool, false)
+        XCTAssertFalse(
+            (capabilities["optOutNotificationMethods"] as? [String])?.isEmpty
+                ?? true
+        )
+        XCTAssertFalse(
+            (initializeParams["optOutNotificationMethods"] as? [String])?.isEmpty
+                ?? true
+        )
+
         let loadedRequest = try XCTUnwrap(sent.first { text in
             text.contains(#""method":"thread/loaded/list""#)
         })
@@ -108,6 +132,62 @@ final class ProtocolRPCClientTests: XCTestCase {
         await client.close()
     }
 
+    func testReadsLatestPersistedTurnStatusWithoutLoadingItems() async throws {
+        let transport = AutoRespondingTransport()
+        let client = CodexRPCClient(
+            transport: transport,
+            clientInformation: .init(version: "1.0"),
+            requestTimeout: 1
+        )
+
+        try await client.connectAndInitialize()
+        let status = try await client.latestTurnStatus(threadID: "external-root")
+        XCTAssertEqual(status, .inProgress)
+
+        let sent = await transport.sentMessages()
+        let request = try XCTUnwrap(sent.first { text in
+            text.contains(#""method":"thread/turns/list""#)
+        })
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(request.utf8))
+                as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["threadId"] as? String, "external-root")
+        XCTAssertEqual((params["limit"] as? NSNumber)?.intValue, 1)
+        XCTAssertEqual(params["sortDirection"] as? String, "desc")
+        XCTAssertEqual(params["itemsView"] as? String, "notLoaded")
+        await client.close()
+    }
+
+    func testListsPersistedInteractiveThreadsForStandaloneIntersection() async throws {
+        let transport = AutoRespondingTransport()
+        let client = CodexRPCClient(
+            transport: transport,
+            clientInformation: .init(version: "1.0"),
+            requestTimeout: 1
+        )
+
+        try await client.connectAndInitialize()
+        let page = try await client.listThreads(cursor: nil, limit: 100)
+        XCTAssertEqual(page.data.map(\.id), ["external-root"])
+
+        let sent = await transport.sentMessages()
+        let request = try XCTUnwrap(sent.first { text in
+            text.contains(#""method":"thread/list""#)
+        })
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(request.utf8))
+                as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["sortKey"] as? String, "recency_at")
+        XCTAssertEqual(params["sortDirection"] as? String, "desc")
+        XCTAssertEqual(params["useStateDbOnly"] as? Bool, true)
+        XCTAssertEqual((params["sourceKinds"] as? [Any])?.count, 0)
+        await client.close()
+    }
+
     private func requestID(from text: String) throws -> JSONRPCID {
         guard case let .request(id, _, _) = try JSONRPCCodec().decode(text) else {
             throw TestFailure.unexpectedMessage
@@ -158,6 +238,26 @@ private actor AutoRespondingTransport: CodexTextTransport {
         let result: JSONValue
         if method == CodexClientMethod.loadedThreads.rawValue {
             result = .object(["data": .array([.string("root-1")])])
+        } else if method == CodexClientMethod.listThreads.rawValue {
+            result = .object([
+                "data": .array([
+                    .object([
+                        "id": .string("external-root"),
+                        "name": .string("pipeline - in depth"),
+                        "sessionId": .string("external-root"),
+                        "status": .object(["type": .string("notLoaded")]),
+                    ]),
+                ]),
+            ])
+        } else if method == CodexClientMethod.listThreadTurns.rawValue {
+            result = .object([
+                "data": .array([
+                    .object([
+                        "id": .string("turn-1"),
+                        "status": .string("inProgress"),
+                    ]),
+                ]),
+            ])
         } else if method == CodexClientMethod.readAccount.rawValue {
             result = .object([
                 "account": .object([

@@ -207,9 +207,23 @@ public struct CodexLoadedThreadsResponse: Sendable, Decodable {
         } else if let threads = try? container.decode([CodexThread].self, forKey: .threads) {
             data = threads.map(\.id)
         } else {
-            data = []
+            throw DecodingError.dataCorruptedError(
+                forKey: .data,
+                in: container,
+                debugDescription: "Expected a thread identifier or metadata array."
+            )
         }
         nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+    }
+}
+
+public struct CodexThreadListResponse: Sendable, Decodable {
+    public let data: [CodexThread]
+    public let nextCursor: String?
+
+    public init(data: [CodexThread], nextCursor: String? = nil) {
+        self.data = data
+        self.nextCursor = nextCursor
     }
 }
 
@@ -218,6 +232,57 @@ public struct CodexThreadReadResponse: Sendable, Decodable {
 
     public init(thread: CodexThread) {
         self.thread = thread
+    }
+}
+
+public enum CodexTurnStatus: Sendable, Hashable, Codable {
+    case completed
+    case interrupted
+    case failed
+    case inProgress
+    case unknown(String)
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = switch value {
+        case "completed": .completed
+        case "interrupted": .interrupted
+        case "failed": .failed
+        case "inProgress": .inProgress
+        default: .unknown(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let value = switch self {
+        case .completed: "completed"
+        case .interrupted: "interrupted"
+        case .failed: "failed"
+        case .inProgress: "inProgress"
+        case let .unknown(value): value
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
+public struct CodexTurnSummary: Sendable, Hashable, Decodable {
+    public let id: String
+    public let status: CodexTurnStatus
+
+    public init(id: String, status: CodexTurnStatus) {
+        self.id = id
+        self.status = status
+    }
+}
+
+public struct CodexThreadTurnsResponse: Sendable, Decodable {
+    public let data: [CodexTurnSummary]
+    public let nextCursor: String?
+
+    public init(data: [CodexTurnSummary], nextCursor: String? = nil) {
+        self.data = data
+        self.nextCursor = nextCursor
     }
 }
 

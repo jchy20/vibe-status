@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		027BEAEF9DB61D6C67182FB6 /* MenuBarStatusRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29266F479F9FEC727FC6D31 /* MenuBarStatusRendererTests.swift */; };
+		06A6D8E36702D80F96A3E5FA /* StandaloneCodexSessionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2308AA553970BEA4ECA6DC50 /* StandaloneCodexSessionDiscovery.swift */; };
 		075DC852A05FF855E41FFC33 /* BoundedDiagnosticRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7E48E2D656BB5CE67718D4 /* BoundedDiagnosticRing.swift */; };
 		0E436572EED8C2B49CE03F63 /* MonitoringEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE6CEA9F95F6A180CED8832 /* MonitoringEngine.swift */; };
 		1944748CFC6B33E4BAA62D69 /* NIOWebSocketTextTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7D4B18EE215337D924AD6A /* NIOWebSocketTextTransport.swift */; };
@@ -21,6 +22,7 @@
 		4531D5A32FF3E9D78B2E853F /* ClaudeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6980F8CC1663CA2AA91D5952 /* ClaudeStatus.swift */; };
 		4A766838A88995E9BE5B904F /* CodexRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECDC06381B8B049704082AC /* CodexRPCClient.swift */; };
 		4DD8FA55E052957F695DBDF6 /* HostProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF7BE3A57A4C174F3FCD97B /* HostProfile.swift */; };
+		4E5B3611446B7A6BB49E61C6 /* StandaloneCodexSessionDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21806712878C071D6F7D3D27 /* StandaloneCodexSessionDiscoveryTests.swift */; };
 		52E5B5C5DE22946C63DC76E5 /* MonitoringEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56F8F57137A902E60540FBE /* MonitoringEngineTests.swift */; };
 		55343E5112AC66B6F2DF1813 /* ProtocolModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A49E28FC3A17929FB3183BD /* ProtocolModelsTests.swift */; };
 		55547F25ED8F2ABC173DE8EA /* MenuBarStatusRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA079B2BA767FDB492B039E /* MenuBarStatusRenderer.swift */; };
@@ -130,6 +132,8 @@
 		0B543312730EC80DEF49E93E /* DashboardPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardPopoverView.swift; sourceTree = "<group>"; };
 		133CC4A38E98DC2A4DDB851C /* UserDefaultsConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsConfigurationStore.swift; sourceTree = "<group>"; };
 		1689F1CF1108CF4180FB7C9F /* VibeStatusAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VibeStatusAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		21806712878C071D6F7D3D27 /* StandaloneCodexSessionDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneCodexSessionDiscoveryTests.swift; sourceTree = "<group>"; };
+		2308AA553970BEA4ECA6DC50 /* StandaloneCodexSessionDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneCodexSessionDiscovery.swift; sourceTree = "<group>"; };
 		2D1D2A93D202FD3350744520 /* VibeStatus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeStatus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3067C1ED519B631F59CD8EDF /* JSONRPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPC.swift; sourceTree = "<group>"; };
 		314B89F4CA03C3506D05C56A /* TransportWebSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportWebSocketTests.swift; sourceTree = "<group>"; };
@@ -273,6 +277,7 @@
 				B85A86CEB364C9AB182682C6 /* DomainModels.swift */,
 				9CE6CEA9F95F6A180CED8832 /* MonitoringEngine.swift */,
 				EEB18D1FA474188F44ADF8BA /* MonitoringPolicies.swift */,
+				2308AA553970BEA4ECA6DC50 /* StandaloneCodexSessionDiscovery.swift */,
 				B7A776C0C93005B3ED85D6D5 /* ThreadProjection.swift */,
 			);
 			path = Monitoring;
@@ -311,6 +316,7 @@
 				686A1791EEF4EDF6294A72FE /* ProtocolRPCClientTests.swift */,
 				410F1DF79D2F4C285C6F608E /* SSHConfigAliasDiscoveryTests.swift */,
 				D08CFC404C9EFB935C9F0A8A /* SSHValidationTests.swift */,
+				21806712878C071D6F7D3D27 /* StandaloneCodexSessionDiscoveryTests.swift */,
 				314B89F4CA03C3506D05C56A /* TransportWebSocketTests.swift */,
 			);
 			path = VibeStatusCoreTests;
@@ -492,6 +498,7 @@
 				7E118A345B1734BBCD7AF680 /* ProtocolRPCClientTests.swift in Sources */,
 				6A740A2F1B503486C21FA45D /* SSHConfigAliasDiscoveryTests.swift in Sources */,
 				32E9A4C06FA34A1404325174 /* SSHValidationTests.swift in Sources */,
+				4E5B3611446B7A6BB49E61C6 /* StandaloneCodexSessionDiscoveryTests.swift in Sources */,
 				7A16686078D67F107014A982 /* TransportWebSocketTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -518,6 +525,7 @@
 				1B28A57638B274C21BA544D4 /* SSHHostValidator.swift in Sources */,
 				3347138ED50B8D3E555F4E43 /* SSHInputValidator.swift in Sources */,
 				D1FE80640E8D63E9CB6BEE4B /* SSHProcessTransport.swift in Sources */,
+				06A6D8E36702D80F96A3E5FA /* StandaloneCodexSessionDiscovery.swift in Sources */,
 				DCEC26C8A5B6A9606FFA24BB /* ThreadProjection.swift in Sources */,
 				C7136296ACB8874F13AA80DB /* UserDefaultsConfigurationStore.swift in Sources */,
 			);
