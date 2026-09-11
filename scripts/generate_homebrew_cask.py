@@ -180,7 +180,7 @@ def render_cask(version: str, sha256: str, *, notarized: bool = False) -> str:
   desc "Menu bar status for Codex and Claude Code tasks on remote hosts"
   homepage "{REPOSITORY_URL}"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "VibeStatus.app"
 

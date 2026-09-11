@@ -60,7 +60,7 @@ class HomebrewCaskTests(unittest.TestCase):
             'url "https://github.com/jchy20/vibe-status/releases/download/v#{version}/VibeStatus-#{version}.zip"',
             result,
         )
-        self.assertIn('depends_on macos: ">= :sonoma"', result)
+        self.assertIn('depends_on macos: :sonoma', result)
         self.assertIn('app "VibeStatus.app"', result)
         self.assertNotIn("auto_updates", result)
         self.assertNotIn("depends_on arch:", result)

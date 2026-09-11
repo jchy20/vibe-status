@@ -7,7 +7,7 @@ cask "vibe-status" do
   desc "Menu bar status for Codex and Claude Code tasks on remote hosts"
   homepage "https://github.com/jchy20/vibe-status"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "VibeStatus.app"
 
