@@ -1,26 +1,16 @@
 # Vibe Status
 
-Vibe Status is a native macOS menu-bar app for keeping an eye on Codex and
-Claude Code tasks running on remote machines. It connects through hosts already
-configured in OpenSSH and shows when a task is working, waiting for you, or
-ready for its next turn.
+A macOS menu-bar app for monitoring Codex and Claude Code tasks on remote machines through SSH.
 
-The menu-bar counters use three states:
+- **Yellow:** waiting for input or approval
+- **Blue:** working
+- **Green:** ready for the next turn
 
-- Yellow — waiting for user input or approval
-- Blue — working
-- Green — ready for the next turn
-
-Open the menu-bar popover to see tasks grouped by state and remote host.
-Vibe Status focuses on top-level tasks, so Codex subagents and temporary side
-conversations do not clutter the list. Each task is labeled with its agent.
-
-> **Beta:** Prebuilt releases are distributed through our own Homebrew tap and
-> [GitHub Releases](https://github.com/jchy20/vibe-status/releases). They are not
-> notarized by Apple and may need approval in macOS Privacy & Security on first
-> launch. Xcode and a paid Apple Developer account are not needed to install them.
+Select the menu-bar icon to see tasks grouped by status and host. Codex subagents are hidden to keep the list focused.
 
 ## Install
+
+Requires macOS 14 or newer. Supports Apple Silicon and Intel Macs.
 
 ```sh
 brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status
@@ -28,12 +18,9 @@ brew install --cask jchy20/vibe-status/vibe-status
 open -a VibeStatus
 ```
 
-Alternatively, download the ZIP from [GitHub Releases](https://github.com/jchy20/vibe-status/releases),
-extract it, and move `VibeStatus.app` to Applications.
+You can also download the ZIP from [GitHub Releases](https://github.com/jchy20/vibe-status/releases), extract it, and move `VibeStatus.app` to Applications. Xcode and an Apple Developer account are not required.
 
-If macOS blocks the first launch and you trust the release, try opening the app,
-then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
-[Apple's instructions](https://support.apple.com/en-us/102445) explain the approval.
+**This beta is not notarized by Apple.** If macOS blocks the first launch and you trust the release, try opening the app, then go to **System Settings → Privacy & Security → Open Anyway** and confirm. See [Apple's instructions](https://support.apple.com/en-us/102445).
 
 To update:
 
@@ -42,256 +29,34 @@ brew update
 brew upgrade --cask jchy20/vibe-status/vibe-status
 ```
 
-## Requirements
+## Setup
 
-- macOS 14 or newer
-- One or more literal host aliases in `~/.ssh/config`
-- Non-interactive SSH authentication using a key or SSH agent
-- Codex CLI 0.145.0 or a compatible newer version on each remote host
-- `lslocks` on remote Linux hosts to include Codex tasks started outside Vibe
-  Status's managed app-server
-- Optional: Claude Code with lifecycle-hook support and Python 3.8 or newer on
-  hosts where Claude Code status should be monitored (tested with Claude Code
-  2.1.212)
-
-## Build from source
-
-For development or a local source build, install full Xcode from the Mac App
-Store and Git, then clone this repository:
-
-```sh
-git clone https://github.com/jchy20/vibe-status.git
-cd vibe-status
-```
-
-Build with the full Xcode toolchain for this command only. Setting
-`DEVELOPER_DIR` this way does not change your system-wide developer-tool
-selection:
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild \
-  -project VibeStatus.xcodeproj \
-  -scheme VibeStatus \
-  -configuration Debug \
-  -derivedDataPath DerivedData \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-
-open DerivedData/Build/Products/Debug/VibeStatus.app
-```
-
-The first build may take a few minutes while Xcode downloads Swift package
-dependencies.
-
-You can also open `VibeStatus.xcodeproj` in Xcode, select the **VibeStatus**
-scheme, and press **Run**.
-
-## Prepare a remote host
-
-Vibe Status uses the aliases already defined in `~/.ssh/config`. For example:
-
-```sshconfig
-Host my-mac
-    HostName example.com
-    User james
-    IdentityFile ~/.ssh/id_ed25519
-```
-
-Before opening Vibe Status, verify that the connection succeeds without a
-password or MFA prompt:
-
-```sh
-ssh -T my-mac true
-```
-
-Also confirm that Codex is installed on the remote host. Vibe Status can usually
-discover it automatically from the remote `PATH`, `$HOME/.local/bin/codex`, or
-the remote account's login shell.
-
-### Enable Claude Code status
-
-Claude Code status is optional. It uses Claude Code's lifecycle hooks to write
-small state records that Vibe Status reads over SSH. From this repository, run:
-
-```sh
-./scripts/configure_claude_status_remote.sh <ssh-alias>
-```
-
-The installer copies lifecycle and usage helpers to
-`~/.local/lib/vibe-status/`, merges Vibe Status entries into
-`~/.claude/settings.json`, and creates a timestamped backup before changing an
-existing settings file. If you already use a custom Claude Code status line,
-Vibe Status delegates to it and restores it during uninstall. Other Claude Code
-settings and hooks are preserved.
-
-Claude Code watches its settings file for changes, so active sessions normally
-pick up the hooks without a restart. The next lifecycle event publishes the
-session's status. To remove only the Vibe Status hooks:
-
-```sh
-./scripts/configure_claude_status_remote.sh --uninstall <ssh-alias>
-```
-
-## First-run setup
-
-1. Launch Vibe Status and select its menu-bar icon.
-2. Select one or more discovered SSH aliases, or enter a literal alias.
-3. Optionally give each host a friendlier display name.
-4. Leave the Codex path empty for automatic detection.
-5. Test every enabled host.
-6. Select **Start Monitoring**.
-
-If automatic detection fails, enter the absolute remote path to Codex or a path
-beginning with `$HOME/`.
-
-## Privacy and remote access
-
-Vibe Status uses the system `/usr/bin/ssh` client and your existing SSH
-configuration. It does not store passwords, private keys, or SSH-agent
-credentials.
-
-The app reads metadata needed to display loaded task names, prompt previews,
-working directories, states, and timestamps. It does not send prompts, approve
-requests, or cache transcripts. Codex task metadata and diagnostics remain in
-memory and are discarded when the app exits. Host configuration and preferences
-are stored locally in `UserDefaults`.
-
-To find Codex tasks started independently with commands such as `codex resume`,
-Vibe Status also checks which canonical task IDs have an active writer lock. The
-remote check is read-only and returns task IDs only. Names and latest turn states
-then come from Codex's metadata APIs; Vibe Status does not read the Codex state
-database or rollout files.
-
-For tasks owned by an independent Codex process, the available cross-process
-metadata reports working versus ready but does not expose whether an active turn
-is specifically waiting for approval or user input. Those tasks therefore appear
-as working until their turn finishes; managed app-server tasks retain all three
-status states.
-
-To avoid repeating account-wide Codex quota information for multiple hosts,
-the app reads the current ChatGPT account email and uses it only as an in-memory
-deduplication key. The email is not displayed, logged, or persisted.
-
-The optional Claude Code helpers store only a session identifier, the first line
-of the latest submitted prompt, working directory, display state, quota
-percentages and reset times, and update timestamps under
-`~/.local/state/vibe-status/` on the remote host. They do not read or store
-Claude credentials. Session records are removed on a normal Claude Code session
-exit, and the app ignores stale records.
-
-There is no analytics or telemetry.
-
-## Troubleshooting
-
-### `xcodebuild` says that Xcode is required
-
-Confirm that full Xcode is installed at `/Applications/Xcode.app`, then run
-`xcodebuild` with the one-command `DEVELOPER_DIR` prefix shown above. You can
-verify that toolchain without changing the system-wide selection:
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild -version
-```
-
-### SSH asks for a password or MFA code
-
-Vibe Status intentionally uses non-interactive SSH. Configure key- or
-agent-based authentication until this succeeds without prompting:
+Add your remote hosts to `~/.ssh/config` and configure SSH keys or an SSH agent. Each host must connect without asking for a password or MFA code:
 
 ```sh
 ssh -T <ssh-alias> true
 ```
 
-### Codex cannot be found
+For Codex monitoring, install Codex CLI 0.145.0 or a compatible newer version on each remote host.
 
-In the host settings, enter the absolute path returned by this command:
+1. Open Vibe Status and select your SSH aliases.
+2. Leave the Codex path empty for automatic detection, or enter its remote path.
+3. Test your hosts, then select **Start Monitoring**.
 
-```sh
-ssh <ssh-alias> 'command -v codex'
-```
+See the [setup guide](docs/setup.md) for SSH examples and troubleshooting.
 
-### A standalone Codex task does not appear
+### Enable Claude Code status
 
-Independently launched Codex tasks currently require `lslocks`, normally
-provided by util-linux on remote Linux hosts. Confirm it is available:
+Claude Code monitoring requires an optional helper on each remote host. Follow the [Claude Code setup instructions](docs/setup.md#enable-claude-code-status) to install or remove it.
 
-```sh
-ssh <ssh-alias> 'command -v lslocks'
-```
+## Limitations and privacy
 
-If it is unavailable, or the remote host is not Linux, Vibe Status continues
-showing tasks owned by its managed app-server; only independently launched
-tasks are omitted.
+Codex tasks started outside Vibe Status require a Linux host with `lslocks` to appear. These tasks show working or ready; waiting for input or approval is shown as working.
 
-### Claude Code tasks do not appear
-
-Confirm the hook is installed and wait for the active session's next lifecycle
-event:
-
-```sh
-ssh <ssh-alias> 'test -x ~/.local/lib/vibe-status/claude_status_hook.py'
-ssh <ssh-alias> 'ls ~/.local/state/vibe-status/claude/'
-```
-
-Re-running `configure_claude_status_remote.sh` is safe and replaces only the
-Vibe Status hook entries.
+Vibe Status uses your existing SSH configuration. It does not store SSH credentials, send prompts, or approve requests. There is no analytics or telemetry. See [privacy and remote access](docs/privacy.md) for what the app and optional helpers read and store.
 
 ## Development
 
-Run the Swift package tests:
-
-```sh
-swift test --disable-sandbox
-```
-
-Check the Claude Code helper scripts:
-
-```sh
-python3 -m py_compile \
-  Tools/claude_status_hook.py \
-  Tools/claude_usage_statusline.py \
-  scripts/configure_claude_status.py
-sh -n scripts/configure_claude_status_remote.sh
-```
-
-Run the macOS app and core tests:
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild \
-  -project VibeStatus.xcodeproj \
-  -scheme VibeStatus \
-  -derivedDataPath DerivedData \
-  CODE_SIGNING_ALLOWED=NO \
-  test
-```
-
-The generated Xcode project is committed, so testers do not need XcodeGen.
-After adding or removing source files, contributors can regenerate it with:
-
-```sh
-brew install xcodegen
-sh scripts/generate_project.sh
-```
-
-Protocol exploration notes and diagnostic tools live in
-[`docs/protocol-spike.md`](docs/protocol-spike.md) and `Tools/`.
-
-## Distribution
-
-The release workflow builds a universal `VibeStatus.app` for Apple Silicon and
-Intel Macs running macOS 14 or newer, applies local ad-hoc signatures to the app
-and its embedded code, and publishes a ZIP and SHA-256 checksum on
-[GitHub Releases](https://github.com/jchy20/vibe-status/releases).
-These signatures do not identify the developer to Apple or provide notarization.
-
-This repository also serves as the Homebrew tap, with its generated cask in
-`Casks/vibe-status.rb`. After publishing a ZIP, the workflow verifies its public
-download checksum and updates the cask. Optional Claude Code hook setup still
-uses the repository scripts described above.
-
-Maintainers: see [Releasing Vibe Status](docs/releasing.md) for local packaging
-and the GitHub Actions release workflow. No Apple signing credentials or custom
-GitHub tokens are required for this distribution route.
+- [Build from source and run tests](docs/development.md)
+- [Package and publish a release](docs/releasing.md)
+- [Protocol notes](docs/protocol-spike.md)
