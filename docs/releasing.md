@@ -1,163 +1,135 @@
 # Releasing Vibe Status
 
-The release process builds one universal macOS 14+ app, signs all its executable
-code with Developer ID and the hardened runtime, notarizes it, staples Apple's
-ticket, and publishes the final ZIP and checksum on GitHub Releases. A cask for
-that exact ZIP is then committed to `jchy20/homebrew-tap`.
+Vibe Status uses a prebuilt, unnotarized app distributed through a personal
+Homebrew tap. The public `jchy20/vibe-status` repository holds both the source
+and `Casks/vibe-status.rb`; there is no separate tap repository.
 
-The first public binary requires Apple signing credentials and an initialized
-public tap. Source builds remain available until those are configured.
+The default release workflow requires **no paid Apple Developer account, Apple
+credentials, or custom GitHub token**. GitHub Actions uses its automatically
+provided repository token to publish release assets and update the cask.
 
-## One-time Apple setup
+## What users install
 
-Enroll in the Apple Developer Program if needed. Create a **Developer ID
-Application** certificate and install it with its private key in your Mac's
-Keychain. An Apple Development certificate or a Developer ID Installer
-certificate does not substitute for it. Verify the identity is available:
+Each release contains a universal macOS 14+ app for Apple Silicon and Intel.
+Its executables and embedded frameworks have local ad-hoc signatures that allow
+their code integrity to be checked. The app is **not signed with Developer ID
+and is not notarized by Apple**.
 
-```sh
-security find-identity -v -p codesigning
-```
-
-Create an app-specific password for the Apple Account used for notarization.
-Store the notarization credentials interactively in Keychain:
+Users install it with:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcrun notarytool store-credentials vibe-status-notary
+brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status
+brew install --cask jchy20/vibe-status/vibe-status
+open -a VibeStatus
 ```
 
-Enter your Apple Account, developer team ID, and app-specific password when
-prompted. Keep private keys and passwords in Keychain or GitHub Actions secrets.
+The explicit repository URL is necessary because this tap shares the app's
+source repository rather than using a repository named `homebrew-*`.
 
-Apple references: [Developer ID](https://developer.apple.com/developer-id/) and
-[notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+If macOS blocks the first launch, a user who trusts the release can try opening
+it, then select **System Settings → Privacy & Security → Open Anyway** and
+confirm. This is a per-app approval. Homebrew retains the normal quarantine
+attribute; the cask does not change macOS security settings or remove quarantine.
+See [Apple's first-launch instructions](https://support.apple.com/en-us/102445).
 
-## Create the Homebrew tap
-
-With GitHub CLI installed and authenticated as an account that can create
-repositories for `jchy20`:
-
-```sh
-gh auth login
-bash scripts/setup_homebrew_tap.sh
-```
-
-This creates public repository `jchy20/homebrew-tap` if necessary and initializes
-its README. Existing repository contents are preserved. The cask is added only
-after a real signed release exists; there is no placeholder checksum.
-
-The install command will be:
-
-```sh
-brew install --cask jchy20/tap/vibe-status
-```
-
-## Configure GitHub Actions
-
-In `jchy20/vibe-status`, add these **Actions repository secrets** under Settings
-→ Secrets and variables → Actions:
-
-| Secret | Value |
-| --- | --- |
-| `APPLE_CERTIFICATE_P12_BASE64` | Base64 of the exported Developer ID Application certificate **and private key** in a password-protected `.p12` file |
-| `APPLE_CERTIFICATE_PASSWORD` | Password protecting that `.p12` file |
-| `DEVELOPER_ID_APPLICATION` | Exact certificate name from `security find-identity`, or its 40-character SHA-1 identity |
-| `APPLE_ID` | Apple Account email used for notarization |
-| `APPLE_TEAM_ID` | Developer team ID |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
-| `HOMEBREW_TAP_TOKEN` | Fine-grained token with **Contents: read and write** access to `jchy20/homebrew-tap` |
-
-The source repository must remain public so Homebrew can download release
-assets without authentication. The tap token also reads public release metadata
-and downloads the public ZIP to verify its checksum.
-
-To upload the certificate without printing it, use GitHub CLI:
-
-```sh
-base64 -i /path/to/DeveloperID.p12 | \
-  gh secret set APPLE_CERTIFICATE_P12_BASE64 --repo jchy20/vibe-status
-```
-
-The workflow creates a temporary signing keychain, imports the identity, stores
-notarization credentials there, and removes the keychain after the run. It uses
-GitHub's repository token to publish the release and the separate tap token only
-for tap access. See [GitHub's signing guide](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+This distribution is for our personal tap. It does not meet the notarization
+requirements of the official `homebrew/cask` catalog.
 
 ## Publish a release
 
-Use a stable version in `X.Y.Z` format. From the source repository's Actions tab,
-select **Release → Run workflow** and enter the version, or run:
+After the source changes and tests are ready, push a new version tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Versions use `X.Y.Z` without leading zeroes. Tag creation triggers
+`.github/workflows/release.yml`, which:
+
+1. Runs the distribution and Xcode Release tests.
+2. Builds the universal app and signs its nested code locally.
+3. Validates the packaged app, creates the ZIP and checksum, and generates the cask.
+4. Creates a draft GitHub release with all assets, then publishes it.
+5. Downloads the published ZIP, verifies the checksum, and commits the cask to
+   `Casks/vibe-status.rb` on the repository's default branch.
+
+The workflow can also be started from **Actions → Release → Run workflow** with
+a version, or with an authenticated GitHub CLI:
 
 ```sh
 gh workflow run release.yml --repo jchy20/vibe-status -f version=0.1.0
 ```
 
-Pushing a matching `vX.Y.Z` tag also triggers the workflow. A manual run refuses
-an existing tag that points to a different source commit. The workflow runs the
-distribution and Xcode tests before signing. Build numbers come from the Actions
-run number. A release is initially created as a draft with all assets attached,
-then published. Existing released versions are never overwritten.
+Build numbers come from the Actions run number. Manual runs reject version tags
+that point to a different commit. Published versions are not overwritten: use a
+new version when changing app binaries. After the workflow's cask commit, update
+your local checkout with `git pull --ff-only`.
 
-The workflow publishes:
+The repository must remain public for unauthenticated Homebrew downloads.
+GitHub Actions must be enabled and allowed to write repository contents. Branch
+rules, if added later, must permit the cask update or the updater will need to
+create a pull request instead.
 
-- `VibeStatus-X.Y.Z.zip`: the signed and stapled universal app.
-- `VibeStatus-X.Y.Z.zip.sha256`: checksum of that final ZIP.
-- `vibe-status.rb`: the generated cask, also written to the tap.
+## Release assets
 
-The cask generator verifies the archive's identity, version, macOS requirement,
-architectures, Developer ID signature, hardened runtime, and stapled ticket.
-The tap updater downloads the published ZIP and checks the checksum again before
-committing. It refuses downgrades or replacements of an existing version.
+- `VibeStatus-X.Y.Z.zip`: prebuilt, ad-hoc-signed universal app.
+- `VibeStatus-X.Y.Z.zip.sha256`: checksum of that exact ZIP.
+- `vibe-status.rb`: generated Homebrew cask.
+- `release.json`: bundle, architecture and signing metadata.
 
-After publishing, verify on a Mac with Homebrew:
+The cask generator validates archive paths, bundle identity and version, minimum
+macOS version, supported architectures, and nested code signatures. It computes
+the checksum from the same archive snapshot it validates. The tap updater checks
+that checksum against the public release before committing and rejects version
+downgrades or replacing an existing version with different content.
 
-```sh
-brew install --cask jchy20/tap/vibe-status
-brew audit --cask --online jchy20/tap/vibe-status
-open -a VibeStatus
-```
-
-Check launch and SSH connection on supported hardware before describing a release
-as tested on that hardware. Building both architectures alone is not an Intel
-runtime test.
+Failed-build diagnostics remain available as GitHub Actions artifacts. Unsigned
+local preview archives remain separate and are not accepted as release casks.
 
 ## Local packaging
 
-With the signing identity and notarization profile already in Keychain:
+On a Mac with full Xcode:
 
 ```sh
-export DEVELOPER_ID_APPLICATION='Developer ID Application: Your Name (TEAMID)'
-export NOTARYTOOL_PROFILE=vibe-status-notary
-bash scripts/build_release.sh 0.1.0 1
+bash scripts/build_release.sh 0.1.0 2
 python3 scripts/generate_homebrew_cask.py 0.1.0 \
   dist/releases/0.1.0/VibeStatus-0.1.0.zip \
   --output dist/releases/0.1.0/vibe-status.rb
 ```
 
-Release output is under `dist/releases/X.Y.Z/`. The script fails before building
-if signing or notarization credentials are missing. It never overwrites an
-existing output directory. Intermediate logs from failed builds remain in a
-printed staging path beneath `dist/`.
+Output is under `dist/releases/X.Y.Z/`. Existing version directories are never
+overwritten. Failed-build intermediates remain in a printed staging directory
+beneath `dist/`. The default build requires no signing certificate.
 
-If your notarization profile is stored in a custom keychain, also set
-`NOTARYTOOL_KEYCHAIN` to that keychain's path. The GitHub workflow uses this to
-keep notarization credentials in its temporary signing keychain.
-
-For a local compile/package check without Apple credentials:
+To compile and package a local preview without even local ad-hoc signing:
 
 ```sh
-bash scripts/build_release.sh --unsigned 0.1.0 1
+bash scripts/build_release.sh --unsigned 0.1.0 2
 ```
 
-This produces `dist/unsigned/0.1.0/VibeStatus-0.1.0-unsigned.zip`, which is for
-local validation only. Signed releases use a separate output path, and the cask
-generator rejects unsigned builds.
+This produces `dist/unsigned/0.1.0/VibeStatus-0.1.0-unsigned.zip` for local
+validation only.
+
+## Verify installation
+
+On a Mac with Homebrew:
+
+```sh
+brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status
+brew install --cask jchy20/vibe-status/vibe-status
+open -a VibeStatus
+```
+
+Check the first-launch approval and the app's SSH setup on supported hardware.
+Building both architectures alone is not a runtime test on an Intel Mac.
+`brew audit --cask --signing` is expected to reject this unnotarized release;
+Developer ID signing is not an acceptance requirement for our personal tap.
 
 ## Recover a tap update
 
-If publishing succeeded but updating Homebrew failed, fix tap access and update
-the tap without rebuilding or replacing the released ZIP:
+If release publication succeeded but the cask commit failed, fix repository
+write access and run the updater without rebuilding the ZIP:
 
 ```sh
 mkdir -p dist/tap-recovery/0.1.0
@@ -167,7 +139,27 @@ python3 scripts/update_homebrew_tap.py 0.1.0 \
   dist/tap-recovery/0.1.0/vibe-status.rb
 ```
 
-The updater is a no-op when the current cask already matches. If an earlier run
-left an unpublished draft release, inspect it before removing the draft and
-retrying. Never replace the ZIP for an already published version; release a new
-version instead.
+This uses your authenticated GitHub CLI login and is a no-op if the cask already
+matches. If a failed run left an unpublished draft release, inspect that draft
+before removing it and retrying. Publish a new version to change an already
+released ZIP.
+
+## Optional Developer ID releases later
+
+The packaging script also supports `--notarized` for a future paid Developer ID
+setup. Configure a valid `DEVELOPER_ID_APPLICATION` identity and a
+`NOTARYTOOL_PROFILE` in Keychain, then use:
+
+```sh
+bash scripts/build_release.sh --notarized 0.2.0 3
+python3 scripts/generate_homebrew_cask.py --notarized 0.2.0 \
+  dist/releases/0.2.0/VibeStatus-0.2.0.zip \
+  --output dist/releases/0.2.0/vibe-status.rb
+```
+
+Set `NOTARYTOOL_KEYCHAIN` as well if the profile is in a custom keychain. This
+opt-in path signs with Developer ID, submits to Apple, staples the ticket and
+checks Gatekeeper. The default GitHub workflow uses the free route; a future
+switch also needs corresponding release notes and CI credential setup.
+When publishing or recovering a notarized cask, also pass `--notarized` to
+`scripts/update_homebrew_tap.py` so it accepts the notarized cask template.

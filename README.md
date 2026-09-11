@@ -15,17 +15,36 @@ Open the menu-bar popover to see tasks grouped by state and remote host.
 Vibe Status focuses on top-level tasks, so Codex subagents and temporary side
 conversations do not clutter the list. Each task is labeled with its agent.
 
-> **Beta:** Signed release and Homebrew publishing automation is now included.
-> Until the first signed build is published on [GitHub Releases](https://github.com/jchy20/vibe-status/releases),
-> build the app locally using the instructions below. A paid Apple Developer
-> account is not required for local builds.
+> **Beta:** Prebuilt releases are distributed through our own Homebrew tap and
+> [GitHub Releases](https://github.com/jchy20/vibe-status/releases). They are not
+> notarized by Apple and may need approval in macOS Privacy & Security on first
+> launch. Xcode and a paid Apple Developer account are not needed to install them.
+
+## Install
+
+```sh
+brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status
+brew install --cask jchy20/vibe-status/vibe-status
+open -a VibeStatus
+```
+
+Alternatively, download the ZIP from [GitHub Releases](https://github.com/jchy20/vibe-status/releases),
+extract it, and move `VibeStatus.app` to Applications.
+
+If macOS blocks the first launch and you trust the release, try opening the app,
+then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
+[Apple's instructions](https://support.apple.com/en-us/102445) explain the approval.
+
+To update:
+
+```sh
+brew update
+brew upgrade --cask jchy20/vibe-status/vibe-status
+```
 
 ## Requirements
 
 - macOS 14 or newer
-- A full Xcode installation from the Mac App Store
-- Git
-- Access to this repository
 - One or more literal host aliases in `~/.ssh/config`
 - Non-interactive SSH authentication using a key or SSH agent
 - Codex CLI 0.145.0 or a compatible newer version on each remote host
@@ -35,9 +54,10 @@ conversations do not clutter the list. Each task is labeled with its agent.
   hosts where Claude Code status should be monitored (tested with Claude Code
   2.1.212)
 
-## Build and run the beta
+## Build from source
 
-After you have been granted access to the repository:
+For development or a local source build, install full Xcode from the Mac App
+Store and Git, then clone this repository:
 
 ```sh
 git clone https://github.com/jchy20/vibe-status.git
@@ -261,22 +281,17 @@ Protocol exploration notes and diagnostic tools live in
 
 ## Distribution
 
-Releases are packaged as a universal `VibeStatus.app` for Apple Silicon and Intel
-Macs running macOS 14 or newer. The release workflow signs the app with Developer
-ID, notarizes it with Apple, staples the ticket, and publishes a ZIP and SHA-256
-checksum on [GitHub Releases](https://github.com/jchy20/vibe-status/releases).
+The release workflow builds a universal `VibeStatus.app` for Apple Silicon and
+Intel Macs running macOS 14 or newer, applies local ad-hoc signatures to the app
+and its embedded code, and publishes a ZIP and SHA-256 checksum on
+[GitHub Releases](https://github.com/jchy20/vibe-status/releases).
+These signatures do not identify the developer to Apple or provide notarization.
 
-Once the first signed release and its cask are published, install with:
+This repository also serves as the Homebrew tap, with its generated cask in
+`Casks/vibe-status.rb`. After publishing a ZIP, the workflow verifies its public
+download checksum and updates the cask. Optional Claude Code hook setup still
+uses the repository scripts described above.
 
-```sh
-brew install --cask jchy20/tap/vibe-status
-open -a VibeStatus
-```
-
-Alternatively, download the release ZIP, extract it, and move `VibeStatus.app` to
-Applications. Prebuilt app users do not need Xcode. Optional Claude Code hook
-setup still uses the repository scripts described above.
-
-Maintainers: see [Releasing Vibe Status](docs/releasing.md) for Apple credential
-setup, creating the tap, local packaging, and the GitHub Actions release workflow.
-Unsigned validation builds are kept separately and cannot generate a release cask.
+Maintainers: see [Releasing Vibe Status](docs/releasing.md) for local packaging
+and the GitHub Actions release workflow. No Apple signing credentials or custom
+GitHub tokens are required for this distribution route.

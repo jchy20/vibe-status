@@ -71,11 +71,17 @@ def sign(app, identity):
     # nested code bundles deepest first, ending with the outer app. Signing the
     # containing bundle also gives its main executable the bundle identifier.
     # Never use codesign --deep for signing.
+    if identity == "-":
+        # Ad-hoc code has no team identifier. Leave hardened runtime disabled so
+        # its library validation does not reject the embedded ad-hoc framework.
+        options = ["--options", "0", "--timestamp=none"]
+    else:
+        options = ["--options", "runtime", "--timestamp"]
     for path in binaries + bundles:
         print(f"Signing {path.relative_to(app.parent)}", flush=True)
         subprocess.run([
             "/usr/bin/codesign", "--force", "--sign", identity,
-            "--options", "runtime", "--timestamp", str(path),
+            *options, str(path),
         ], check=True)
 
 
@@ -103,7 +109,11 @@ def version_tuple(version):
     return components + (0,) * (3 - len(components))
 
 
-def inspect(app, version, build_number, signed):
+def inspect(app, version, build_number, signed=False, adhoc=False, notarized=False):
+    if signed and adhoc:
+        raise ValueError("Choose Developer ID or ad-hoc signature validation, not both.")
+    if notarized and not signed:
+        raise ValueError("Notarization requires Developer ID signature validation.")
     info = bundle_info(app)
     for key, expected in (
         ("CFBundleIdentifier", "com.jamescai.VibeStatus"),
@@ -129,34 +139,44 @@ def inspect(app, version, build_number, signed):
                 raise ValueError(f"{path} ({architecture}) requires macOS {minimum}, newer than 14.0.")
             if path == executable and version_tuple(minimum) != (14, 0, 0):
                 raise ValueError(f"The app's {architecture} slice must target macOS 14.0.")
-        if signed:
+        if signed or adhoc:
             run("/usr/bin/codesign", "--verify", "--strict", "--all-architectures", str(path))
             for architecture in architectures:
                 signature = run("/usr/bin/codesign", "--display", "--verbose=4", "--arch", architecture, str(path))
-                for required in ("runtime)", "Authority=Developer ID Application:", "Timestamp="):
-                    if required not in signature:
-                        raise ValueError(f"{path} ({architecture}): missing {required} in signature.")
-                team = re.search(r"^TeamIdentifier=(\S+)$", signature, re.MULTILINE)
-                if not team or team.group(1) == "not set":
-                    raise ValueError(f"{path}: signature has no team identifier.")
-                teams.add(team.group(1))
+                if adhoc:
+                    if not re.search(r"^Signature=adhoc$", signature, re.MULTILINE):
+                        raise ValueError(f"{path} ({architecture}): signature is not ad-hoc.")
+                    if re.search(r"^CodeDirectory .*flags=.*\bruntime\b", signature, re.MULTILINE):
+                        raise ValueError(f"{path} ({architecture}): ad-hoc code must not enable hardened runtime.")
+                else:
+                    for required in ("runtime)", "Authority=Developer ID Application:", "Timestamp="):
+                        if required not in signature:
+                            raise ValueError(f"{path} ({architecture}): missing {required} in signature.")
+                    team = re.search(r"^TeamIdentifier=(.+)$", signature, re.MULTILINE)
+                    if not team or team.group(1) == "not set":
+                        raise ValueError(f"{path}: signature has no team identifier.")
+                    teams.add(team.group(1))
         binary_records.append({
             "path": str(path.relative_to(app)),
             "architectures": architectures,
             "minimum_macos_by_architecture": minimum_versions,
         })
-    if signed:
-        if len(teams) != 1:
+    if signed or adhoc:
+        if signed and len(teams) != 1:
             raise ValueError(f"Nested code has different signing teams: {sorted(teams)}")
         for bundle in bundles:
             run("/usr/bin/codesign", "--verify", "--strict", "--all-architectures", str(bundle))
         run("/usr/bin/codesign", "--verify", "--deep", "--strict", "--all-architectures", str(app))
+    if notarized:
+        run("/usr/bin/xcrun", "stapler", "validate", str(app))
     print(json.dumps({
         "version": version,
         "build_number": build_number,
         "bundle_identifier": info["CFBundleIdentifier"],
         "minimum_macos": "14.0",
+        "signing_mode": "developer_id" if signed else "adhoc" if adhoc else "unsigned",
         "developer_id_signed": signed,
+        "notarized": notarized,
         "signing_team": next(iter(teams), None),
         "binaries": binary_records,
     }, indent=2))
@@ -174,14 +194,22 @@ def main():
     inspect_parser.add_argument("app", type=Path)
     inspect_parser.add_argument("version")
     inspect_parser.add_argument("build_number")
-    inspect_parser.add_argument("--signed", action="store_true")
+    inspection_mode = inspect_parser.add_mutually_exclusive_group()
+    inspection_mode.add_argument("--signed", action="store_true", help="verify Developer ID signatures")
+    inspection_mode.add_argument("--adhoc", action="store_true", help="verify ad-hoc signatures")
+    inspection_mode.add_argument("--notarized", action="store_true", help="verify Developer ID signatures and stapled ticket")
     args = parser.parse_args()
     if args.command == "identity":
         signing_identity(args.requested)
     elif args.command == "sign":
         sign(args.app.resolve(), args.identity)
     else:
-        inspect(args.app.resolve(), args.version, args.build_number, args.signed)
+        inspect(
+            args.app.resolve(), args.version, args.build_number,
+            signed=args.signed or args.notarized,
+            adhoc=args.adhoc,
+            notarized=args.notarized,
+        )
 
 
 if __name__ == "__main__":

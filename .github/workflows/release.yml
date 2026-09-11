@@ -48,20 +48,11 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
 
-      - name: Check required credentials and tap
+      - name: Check public release repository
         env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          for name in APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD GH_TOKEN; do
-            [[ -n "${!name}" ]] || { echo "::error::Missing release secret: $name (GH_TOKEN is HOMEBREW_TAP_TOKEN)"; exit 1; }
-          done
-          gh repo view jchy20/homebrew-tap --json visibility --jq '.visibility' | grep -qx PUBLIC
+          gh repo view "$GITHUB_REPOSITORY" --json visibility --jq '.visibility' | grep -qx PUBLIC
 
       - name: Test
         run: |
@@ -70,38 +61,7 @@ jobs:
             -configuration Release -destination 'platform=macOS' \
             -derivedDataPath DerivedData/Tests CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES test
 
-      - name: Configure temporary signing keychain
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          umask 077
-          keychain="$RUNNER_TEMP/vibe-status-signing.keychain-db"
-          certificate="$RUNNER_TEMP/vibe-status-signing.p12"
-          password=$(openssl rand -hex 32)
-          echo "::add-mask::$password"
-          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -k "$keychain" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-          security default-keychain -d user -s "$keychain"
-          rm -f "$certificate"
-          xcrun notarytool store-credentials vibe-status-release \
-            --keychain "$keychain" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD"
-
-      - name: Build, sign, notarize and generate cask
-        env:
-          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
-          NOTARYTOOL_PROFILE: vibe-status-release
-          NOTARYTOOL_KEYCHAIN: ${{ runner.temp }}/vibe-status-signing.keychain-db
+      - name: Build app and generate cask
         run: |
           bash scripts/build_release.sh "$RELEASE_VERSION" "$GITHUB_RUN_NUMBER"
           python3 scripts/generate_homebrew_cask.py "$RELEASE_VERSION" \
@@ -128,13 +88,14 @@ jobs:
             "dist/releases/$RELEASE_VERSION/VibeStatus-$RELEASE_VERSION.zip" \
             "dist/releases/$RELEASE_VERSION/VibeStatus-$RELEASE_VERSION.zip.sha256" \
             "dist/releases/$RELEASE_VERSION/vibe-status.rb" \
+            "dist/releases/$RELEASE_VERSION/release.json" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
             --title "Vibe Status $RELEASE_VERSION" --notes-file distribution/release-notes.md
           gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
 
       - name: Update Homebrew tap
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/update_homebrew_tap.py "$RELEASE_VERSION" \
             "dist/releases/$RELEASE_VERSION/vibe-status.rb"
@@ -150,12 +111,3 @@ jobs:
             dist/.release-*/release.json
           include-hidden-files: true
           if-no-files-found: ignore
-
-      - name: Remove signing credentials
-        if: always()
-        run: |
-          if [[ -f "$RUNNER_TEMP/vibe-status-signing.keychain-db" ]]; then
-            security default-keychain -d user -s "$HOME/Library/Keychains/login.keychain-db"
-            security delete-keychain "$RUNNER_TEMP/vibe-status-signing.keychain-db"
-          fi
-          rm -f "$RUNNER_TEMP/vibe-status-signing.p12"

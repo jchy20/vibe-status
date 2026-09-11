@@ -1,65 +1,38 @@
 # Vibe Status Homebrew tap
 
-This is the README seed for `jchy20/homebrew-tap`.
+The public [Vibe Status repository](https://github.com/jchy20/vibe-status) is also
+the tap. It contains `Casks/vibe-status.rb`, generated from the published ZIP.
 
-Installation is available once `Casks/vibe-status.rb` is present in this tap.
-That file is generated from a published, signed and notarized release; an empty
-tap means the first signed release is still pending.
-
-Vibe Status is a macOS menu-bar app that displays the status of Codex and Claude
-Code tasks on remote hosts. It requires macOS 14 Sonoma or later and supports
-Apple silicon and Intel Macs.
-
-To install:
+Requires macOS 14 Sonoma or newer. The prebuilt app supports Apple Silicon and
+Intel Macs; users do not need Xcode or an Apple Developer account.
 
 ```sh
-brew install --cask jchy20/tap/vibe-status
+brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status
+brew install --cask jchy20/vibe-status/vibe-status
 open -a VibeStatus
 ```
+
+**The beta is not notarized by Apple.** If macOS blocks it and you trust the
+release, first try opening it, then select **System Settings → Privacy &
+Security → Open Anyway** and confirm. See
+[Apple's instructions](https://support.apple.com/en-us/102445).
 
 To update:
 
 ```sh
 brew update
-brew upgrade --cask vibe-status
+brew upgrade --cask jchy20/vibe-status/vibe-status
 ```
 
 To uninstall:
 
 ```sh
-brew uninstall --cask vibe-status
+brew uninstall --cask jchy20/vibe-status/vibe-status
 ```
 
-Use `brew uninstall --cask --zap vibe-status` to also remove the app's saved
-preferences. This does not uninstall remote Claude Code hooks.
+Add `--zap` to remove the app's saved preferences. This does not uninstall remote
+Claude Code hooks. The app uses Homebrew-managed upgrades.
 
-See the [Vibe Status repository](https://github.com/jchy20/vibe-status) for setup
-instructions, source code, and issues. Direct downloads are available from
-[GitHub Releases](https://github.com/jchy20/vibe-status/releases) once published.
-
-## Maintaining the cask
-
-Generate the cask on macOS from the exact signed, notarized and stapled ZIP
-published on GitHub Releases. From the Vibe Status source checkout:
-
-```sh
-python3 scripts/generate_homebrew_cask.py 0.1.0 \
-  dist/releases/0.1.0/VibeStatus-0.1.0.zip \
-  --output dist/releases/0.1.0/vibe-status.rb
-```
-
-The generator verifies the bundle version, identifier, minimum macOS version,
-universal architectures, Developer ID signature, hardened runtime and stapled
-notarization ticket, then computes the ZIP's SHA-256. Unsigned preview builds
-are rejected. There is no placeholder cask or checksum to publish.
-
-Copy the generated file to `Casks/vibe-status.rb` in this tap and validate it
-against the public release before committing an update:
-
-```sh
-brew style --cask jchy20/tap/vibe-status
-brew audit --cask --online jchy20/tap/vibe-status
-```
-
-The app currently uses Homebrew-managed upgrades. Its cask intentionally does
-not declare automatic in-app updates.
+The release workflow updates the cask automatically after verifying the public
+ZIP checksum. Maintainers can find packaging and recovery instructions in
+[Releasing Vibe Status](../../docs/releasing.md).

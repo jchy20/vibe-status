@@ -26,12 +26,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version")
     parser.add_argument("cask", type=Path)
+    parser.add_argument("--notarized", action="store_true", help="publish the cask generated with --notarized")
     args = parser.parse_args()
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", args.version):
         parser.error("version must be a stable X.Y.Z version")
     content = args.cask.read_text()
     sha = re.search(r'^  sha256 "([0-9a-f]{64})"$', content, re.MULTILINE)
-    if not sha or content != render_cask(args.version, sha.group(1)):
+    if not sha or content != render_cask(args.version, sha.group(1), notarized=args.notarized):
         parser.error("cask does not match the generated Vibe Status release template")
 
     source = gh("api", "repos/jchy20/vibe-status")
@@ -52,11 +53,10 @@ def main():
         if digest.hexdigest() != sha.group(1):
             parser.error("published ZIP checksum does not match the cask")
 
-    repo = "jchy20/homebrew-tap"
-    metadata = gh("api", f"repos/{repo}")
-    if metadata["private"]:
-        parser.error("the Homebrew tap must be public")
-    branch = metadata["default_branch"]
+    # The public source repository also hosts this personal tap. Its Actions
+    # GITHUB_TOKEN can update the cask without a separate repository token.
+    repo = "jchy20/vibe-status"
+    branch = source["default_branch"]
     # Reading the tree distinguishes a missing cask from authentication/API errors.
     tree = gh("api", f"repos/{repo}/git/trees/{branch}?recursive=1")
     if tree.get("truncated"):
@@ -79,7 +79,8 @@ def main():
     if entry:
         payload["sha"] = entry["sha"]
     gh("api", "--method", "PUT", f"repos/{repo}/contents/Casks/vibe-status.rb", payload=payload)
-    print("Published: brew install --cask jchy20/tap/vibe-status")
+    print("Published: brew tap jchy20/vibe-status https://github.com/jchy20/vibe-status")
+    print("Install: brew install --cask jchy20/vibe-status/vibe-status")
 
 
 if __name__ == "__main__":

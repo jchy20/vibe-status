@@ -51,8 +51,7 @@ class HomebrewTapUpdateTests(unittest.TestCase):
         self.cask.write_text(self.content)
         self.download_bytes = archive.read_bytes()
         self.release = {"draft": False, "prerelease": False}
-        self.source = {"private": False}
-        self.tap = {"private": False, "default_branch": "main"}
+        self.source = {"private": False, "default_branch": "main"}
         self.tree = {"truncated": False, "tree": []}
         self.previous = None
         self.calls = []
@@ -65,17 +64,16 @@ class HomebrewTapUpdateTests(unittest.TestCase):
             raise self.api_error
         endpoint = args[-1]
         if "PUT" in args:
+            self.assertEqual(endpoint, "repos/jchy20/vibe-status/contents/Casks/vibe-status.rb")
             self.writes.append(payload)
             return {}
         if endpoint == "repos/jchy20/vibe-status":
             return self.source
         if endpoint == "repos/jchy20/vibe-status/releases/tags/v0.2.0":
             return self.release
-        if endpoint == "repos/jchy20/homebrew-tap":
-            return self.tap
-        if endpoint == "repos/jchy20/homebrew-tap/git/trees/main?recursive=1":
+        if endpoint == "repos/jchy20/vibe-status/git/trees/main?recursive=1":
             return self.tree
-        if endpoint == "repos/jchy20/homebrew-tap/git/blobs/previous-blob":
+        if endpoint == "repos/jchy20/vibe-status/git/blobs/previous-blob":
             return {"content": base64.b64encode(self.previous.encode()).decode()}
         self.fail(f"Unexpected GitHub API call: {args!r}")
 
@@ -87,9 +85,12 @@ class HomebrewTapUpdateTests(unittest.TestCase):
         (target / filename).write_bytes(self.download_bytes)
         return subprocess.CompletedProcess(command, 0)
 
-    def run_updater(self, version="0.2.0"):
+    def run_updater(self, version="0.2.0", *, notarized=False):
+        arguments = ["update_homebrew_tap.py", version, str(self.cask)]
+        if notarized:
+            arguments.append("--notarized")
         with (
-            mock.patch.object(sys, "argv", ["update_homebrew_tap.py", version, str(self.cask)]),
+            mock.patch.object(sys, "argv", arguments),
             mock.patch.object(updater, "gh", side_effect=self.gh),
             mock.patch.object(updater.subprocess, "run", side_effect=self.download),
             redirect_stdout(io.StringIO()),
@@ -144,17 +145,20 @@ class HomebrewTapUpdateTests(unittest.TestCase):
             self.run_updater()
         self.assertEqual(self.writes, [])
 
-    def test_private_tap_is_rejected(self) -> None:
-        self.tap["private"] = True
-        with self.assertRaises(SystemExit):
-            self.run_updater()
-        self.assertEqual(self.writes, [])
-
     def test_private_source_repository_is_rejected(self) -> None:
         self.source["private"] = True
         with self.assertRaises(SystemExit):
             self.run_updater()
         self.assertEqual(self.writes, [])
+
+    def test_caveat_cannot_be_removed_from_default_free_release(self) -> None:
+        digest = generator.hashlib.sha256(self.download_bytes).hexdigest()
+        self.cask.write_text(generator.render_cask("0.2.0", digest, notarized=True))
+        with self.assertRaises(SystemExit):
+            self.run_updater()
+        self.assertEqual(self.calls, [])
+        self.run_updater(notarized=True)
+        self.assertEqual(len(self.writes), 1)
 
     def test_additional_ruby_code_or_conflicting_stanzas_are_rejected(self) -> None:
         for extra in ('\nsystem("unexpected")\n', '\n  version "99.0.0"\n', '\n  app "Other.app"\n'):

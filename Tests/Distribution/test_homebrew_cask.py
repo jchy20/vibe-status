@@ -8,6 +8,7 @@ from pathlib import Path
 import plistlib
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -20,7 +21,8 @@ SPECIFICATION = importlib.util.spec_from_file_location(
 )
 assert SPECIFICATION and SPECIFICATION.loader
 cask = importlib.util.module_from_spec(SPECIFICATION)
-SPECIFICATION.loader.exec_module(cask)
+with mock.patch.object(sys, "path", [str(REPOSITORY / "scripts"), *sys.path]):
+    SPECIFICATION.loader.exec_module(cask)
 
 
 class HomebrewCaskTests(unittest.TestCase):
@@ -63,6 +65,10 @@ class HomebrewCaskTests(unittest.TestCase):
         self.assertNotIn("auto_updates", result)
         self.assertNotIn("depends_on arch:", result)
         self.assertIn('zap trash: "~/Library/Preferences/com.jamescai.VibeStatus.plist"', result)
+        self.assertIn("This release is not notarized by Apple.", result)
+        self.assertIn("After opening Vibe Status", result)
+        self.assertIn("System Settings > Privacy & Security > Open Anyway", result)
+        self.assertNotIn("quarantine", result)
 
     def test_checksum_changes_when_archive_content_changes(self) -> None:
         archive = self.make_archive()
@@ -174,7 +180,83 @@ class HomebrewCaskTests(unittest.TestCase):
                 cask.main(["0.1.0", str(archive), "--output", str(archive)])
         self.assertEqual(archive.read_bytes(), original)
 
+    def make_native_app(self):
+        app = self.directory / "VibeStatus.app"
+        binary_paths = (
+            app / "Contents/MacOS/VibeStatus",
+            app / "Contents/Frameworks/Helper.framework/Versions/A/Helper",
+            app / "Contents/Frameworks/libSupport.dylib",
+        )
+        for path in binary_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\xca\xfe\xba\xbe" + b"fixture Mach-O")
+        framework = app / "Contents/Frameworks/Helper.framework"
+        metadata = framework / "Resources/Info.plist"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_bytes(plistlib.dumps({"CFBundleExecutable": "Helper"}))
+        return binary_paths, (framework, app)
+
+    def test_ad_hoc_release_checks_all_nested_code_without_notarization(self) -> None:
+        binaries, bundles = self.make_native_app()
+        commands = []
+
+        def run(command, **kwargs):
+            commands.append(command)
+            self.assertNotIn("shell", kwargs)
+            stdout = "x86_64 arm64" if "-archs" in command else "Signature=adhoc\n"
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+
+        with (
+            mock.patch.object(cask.sys, "platform", "darwin"),
+            mock.patch.object(cask.subprocess, "run", side_effect=run),
+            mock.patch.object(cask, "minimum_macos", return_value="14.0"),
+        ):
+            cask.verify_packaged_app(Path("release.zip"), self.directory)
+        self.assertFalse(any("stapler" in command for command in commands))
+        for path in (*binaries, *bundles):
+            self.assertTrue(any("--verify" in command and command[-1] == str(path) for command in commands))
+            for architecture in ("arm64", "x86_64"):
+                self.assertTrue(any("--display" in command and architecture in command and command[-1] == str(path)
+                                    for command in commands))
+
+    def test_ad_hoc_release_rejects_nested_invalid_signature_architecture_or_macos_requirement(self) -> None:
+        self.make_native_app()
+        for failure in ("signature", "signature_x86_64", "architecture", "minimum_os"):
+            with self.subTest(failure=failure):
+                def run(command, **kwargs):
+                    nested = command[-1].endswith("libSupport.dylib")
+                    status, stdout = 0, ""
+                    if "--verify" in command and nested and failure == "signature":
+                        status = 1
+                    if "--display" in command:
+                        stdout = "Signature=adhoc\n"
+                        if nested and "x86_64" in command and failure == "signature_x86_64":
+                            stdout = "Signature=invalid\n"
+                    if "-archs" in command:
+                        stdout = "arm64" if nested and failure == "architecture" else "x86_64 arm64"
+                    return subprocess.CompletedProcess(command, status, stdout, "")
+
+                def minimum(path, architecture):
+                    return "15.0" if path.name == "libSupport.dylib" and failure == "minimum_os" else "14.0"
+
+                with (
+                    mock.patch.object(cask.sys, "platform", "darwin"),
+                    mock.patch.object(cask.subprocess, "run", side_effect=run),
+                    mock.patch.object(cask, "minimum_macos", side_effect=minimum),
+                    self.assertRaises(cask.ReleaseValidationError),
+                ):
+                    cask.verify_packaged_app(Path("release.zip"), self.directory)
+
+    def test_notarized_flag_requires_stricter_verification_and_omits_manual_approval_caveat(self) -> None:
+        archive = self.make_archive()
+        stdout = io.StringIO()
+        with mock.patch.object(cask, "verify_packaged_app") as verify, redirect_stdout(stdout):
+            cask.main(["0.1.0", str(archive), "--notarized"])
+        self.assertTrue(verify.call_args.kwargs["notarized"])
+        self.assertNotIn("not notarized", stdout.getvalue())
+
     def test_native_verification_rejects_local_signing_missing_runtime_or_ticket_and_single_arch(self) -> None:
+        self.make_native_app()
         good_signature = "Authority=Developer ID Application: Example (TEAM123)\nCodeDirectory v=20500 size=900 flags=0x10000(runtime) hashes=10+7\nTimestamp=Sep 11, 2026 at 00:00:00\n"
         cases = (
             {"signature": "Signature=adhoc\nCodeDirectory v=20500 flags=0x10000(runtime)\n"},
@@ -204,13 +286,14 @@ class HomebrewCaskTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, status, stdout, "")
             return run
 
-        with mock.patch.object(cask.sys, "platform", "darwin"):
+        with (mock.patch.object(cask.sys, "platform", "darwin"),
+              mock.patch.object(cask, "minimum_macos", return_value="14.0")):
             for options in cases:
                 with self.subTest(options=options), mock.patch.object(cask.subprocess, "run", side_effect=runner_for(options)):
                     with self.assertRaises(cask.ReleaseValidationError):
-                        cask.verify_packaged_app(Path("release.zip"), self.directory)
+                        cask.verify_packaged_app(Path("release.zip"), self.directory, notarized=True)
             with mock.patch.object(cask.subprocess, "run", side_effect=runner_for({})):
-                cask.verify_packaged_app(Path("release.zip"), self.directory)
+                cask.verify_packaged_app(Path("release.zip"), self.directory, notarized=True)
 
     def test_platform_without_apple_verification_tools_is_rejected(self) -> None:
         with mock.patch.object(cask.sys, "platform", "linux"):

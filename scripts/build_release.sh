@@ -4,13 +4,17 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/build_release.sh [--unsigned] VERSION BUILD_NUMBER
+Usage: scripts/build_release.sh [--notarized | --unsigned] VERSION BUILD_NUMBER
 
-Signed releases require DEVELOPER_ID_APPLICATION (certificate name or SHA-1)
-and NOTARYTOOL_PROFILE (an existing notarytool keychain profile).
+The default release uses ad-hoc code signatures and requires no Apple account.
+It is not notarized; macOS may require a manual first-launch approval.
 Output: dist/releases/VERSION/VibeStatus-VERSION.zip and .zip.sha256
 
---unsigned skips Developer ID signing and notarization for LOCAL VALIDATION ONLY.
+--notarized opts into Developer ID signing and Apple notarization. It requires
+DEVELOPER_ID_APPLICATION (certificate name or SHA-1) and NOTARYTOOL_PROFILE
+(an existing notarytool keychain profile).
+
+--unsigned skips packaging signatures for LOCAL VALIDATION ONLY.
 Output: dist/unsigned/VERSION/VibeStatus-VERSION-unsigned.zip and .zip.sha256
 
 Optional: DEVELOPER_DIR, RELEASE_DERIVED_DATA_PATH,
@@ -22,13 +26,16 @@ EOF
 
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
-unsigned=false
+signing_mode=adhoc
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
 fi
 if [[ "${1:-}" == "--unsigned" ]]; then
-  unsigned=true
+  signing_mode=unsigned
+  shift
+elif [[ "${1:-}" == "--notarized" ]]; then
+  signing_mode=notarized
   shift
 fi
 [[ $# -eq 2 ]] || { usage >&2; exit 2; }
@@ -48,7 +55,7 @@ xcodebuild -version >/dev/null || die 'Select a full Xcode installation using DE
 derived_data=${RELEASE_DERIVED_DATA_PATH:-"$repository_dir/DerivedData/Release"}
 source_packages=${RELEASE_SOURCE_PACKAGES_PATH:-"$repository_dir/DerivedData/SourcePackages"}
 
-if $unsigned; then
+if [[ $signing_mode == unsigned ]]; then
   output_dir="$repository_dir/dist/unsigned/$version"
   archive_name="VibeStatus-$version-unsigned.zip"
 else
@@ -57,9 +64,11 @@ else
 fi
 [[ ! -e "$output_dir" ]] || die "Output already exists: $output_dir"
 
-# Check credentials before spending time on a release build. Do not fall back to
-# an unsigned archive if either signing or notarization is unavailable.
-if ! $unsigned; then
+# Only the opt-in notarized route needs Apple credentials. Never silently
+# downgrade an explicitly requested notarized release if credentials are missing.
+hardened_runtime=NO
+if [[ $signing_mode == notarized ]]; then
+  hardened_runtime=YES
   [[ -n ${DEVELOPER_ID_APPLICATION:-} ]] || die 'Set DEVELOPER_ID_APPLICATION to a valid Developer ID Application signing identity.'
   [[ -n ${NOTARYTOOL_PROFILE:-} ]] || die 'Set NOTARYTOOL_PROFILE to an existing notarytool keychain profile.'
   signing_identity=$(python3 "$script_dir/release_bundle.py" identity "$DEVELOPER_ID_APPLICATION")
@@ -94,7 +103,7 @@ xcodebuild -quiet \
   MACOSX_DEPLOYMENT_TARGET=14.0 \
   MARKETING_VERSION="$version" \
   CURRENT_PROJECT_VERSION="$build_number" \
-  ENABLE_HARDENED_RUNTIME=YES \
+  ENABLE_HARDENED_RUNTIME="$hardened_runtime" \
   CODE_SIGNING_ALLOWED=NO \
   build 2>&1 | tee "$staging_dir/build.log"
 
@@ -103,7 +112,12 @@ ditto "$derived_data/Build/Products/Release/VibeStatus.app" "$app_path"
 python3 "$script_dir/release_bundle.py" inspect "$app_path" "$version" "$build_number" \
   > "$staging_dir/release.json"
 
-if ! $unsigned; then
+if [[ $signing_mode == adhoc ]]; then
+  python3 "$script_dir/release_bundle.py" sign "$app_path" -
+  python3 "$script_dir/release_bundle.py" inspect "$app_path" "$version" "$build_number" --adhoc \
+    > "$staging_dir/release.json"
+  printf 'Created ad-hoc signatures. This release is not notarized by Apple.\n'
+elif [[ $signing_mode == notarized ]]; then
   python3 "$script_dir/release_bundle.py" sign "$app_path" "$signing_identity"
   python3 "$script_dir/release_bundle.py" inspect "$app_path" "$version" "$build_number" --signed \
     > "$staging_dir/release.json"
@@ -127,6 +141,8 @@ if ! $unsigned; then
   xcrun stapler validate "$app_path"
   codesign --verify --deep --strict --all-architectures "$app_path"
   spctl --assess --type execute --verbose=2 "$app_path"
+  python3 "$script_dir/release_bundle.py" inspect "$app_path" "$version" "$build_number" --notarized \
+    > "$staging_dir/release.json"
   rm -f -- "$submission_zip"
 else
   printf 'UNSIGNED LOCAL VALIDATION BUILD: do not publish this archive.\n' >&2

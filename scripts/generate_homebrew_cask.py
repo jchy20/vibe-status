@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate a cask from the final, signed and stapled universal release ZIP.
+"""Generate a cask from the final, ad-hoc signed universal release ZIP.
 
 Run on macOS after release packaging has produced the final artifact. Native
-Apple tools verify the packaged app; there is deliberately no verification bypass.
+Apple tools verify all packaged code. Use --notarized for a Developer ID release.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+
+from release_bundle import code_paths, minimum_macos, version_tuple
 
 
 REPOSITORY_URL = "https://github.com/jchy20/vibe-status"
@@ -94,30 +96,46 @@ def run_checked(command: list[str]) -> str:
     return result.stdout + result.stderr
 
 
-def verify_packaged_app(archive_path: Path, destination: Path) -> None:
+def verify_packaged_app(archive_path: Path, destination: Path, *, notarized: bool = False) -> None:
     if sys.platform != "darwin":
-        raise ReleaseValidationError("cask generation must run on macOS to verify signing and notarization")
+        raise ReleaseValidationError("cask generation must run on macOS to verify packaged code signatures")
     run_checked(["/usr/bin/ditto", "-x", "-k", str(archive_path), str(destination)])
     app = destination / APP_NAME
+    binaries, bundles = code_paths(app)
+    executable = app / "Contents/MacOS/VibeStatus"
+    if executable not in binaries:
+        raise ReleaseValidationError("app executable must be a Mach-O binary")
+    for path in binaries:
+        architectures = run_checked(["/usr/bin/lipo", "-archs", str(path)]).split()
+        if not {"arm64", "x86_64"}.issubset(architectures):
+            raise ReleaseValidationError(f"{path.name} must contain both arm64 and x86_64 architectures")
+        for architecture in architectures:
+            minimum = version_tuple(minimum_macos(path, architecture))
+            if minimum > (14, 0, 0) or (path == executable and minimum != (14, 0, 0)):
+                raise ReleaseValidationError(f"{path.name} ({architecture}) does not support the macOS 14 requirement")
+    for path in binaries + bundles:
+        run_checked(["/usr/bin/codesign", "--verify", "--strict", "--all-architectures", str(path)])
+        for architecture in ("arm64", "x86_64"):
+            signature = run_checked([
+                "/usr/bin/codesign", "--display", "--verbose=4", "--arch", architecture, str(path)
+            ])
+            if not notarized:
+                if not re.search(r"^Signature=adhoc$", signature, re.MULTILINE):
+                    raise ReleaseValidationError(f"{path.name} ({architecture}) must have an ad-hoc signature")
+                continue
+            if not re.search(r"^Authority=Developer ID Application:", signature, re.MULTILINE):
+                raise ReleaseValidationError(f"{path.name} ({architecture}) must have a Developer ID Application signature")
+            if not re.search(r"^CodeDirectory .*flags=.*\bruntime\b", signature, re.MULTILINE):
+                raise ReleaseValidationError(f"{path.name} ({architecture}) signature must enable the hardened runtime")
+            timestamp = re.search(r"^Timestamp=(.+)$", signature, re.MULTILINE)
+            if not timestamp or timestamp.group(1).strip().lower() in {"none", "not set"}:
+                raise ReleaseValidationError(f"{path.name} ({architecture}) signature must have a secure timestamp")
     run_checked(["/usr/bin/codesign", "--verify", "--deep", "--strict", "--all-architectures", str(app)])
-    for architecture in ("arm64", "x86_64"):
-        signature = run_checked([
-            "/usr/bin/codesign", "--display", "--verbose=4", "--arch", architecture, str(app)
-        ])
-        if not re.search(r"^Authority=Developer ID Application:", signature, re.MULTILINE):
-            raise ReleaseValidationError(f"{architecture} app must have a Developer ID Application signature")
-        if not re.search(r"^CodeDirectory .*flags=.*\bruntime\b", signature, re.MULTILINE):
-            raise ReleaseValidationError(f"{architecture} app signature must enable the hardened runtime")
-        timestamp = re.search(r"^Timestamp=(.+)$", signature, re.MULTILINE)
-        if not timestamp or timestamp.group(1).strip().lower() in {"none", "not set"}:
-            raise ReleaseValidationError(f"{architecture} app signature must have a secure timestamp")
-    run_checked(["/usr/bin/xcrun", "stapler", "validate", str(app)])
-    architectures = run_checked(["/usr/bin/lipo", "-archs", str(app / "Contents/MacOS/VibeStatus")])
-    if set(architectures.split()) != {"arm64", "x86_64"}:
-        raise ReleaseValidationError("app must contain both arm64 and x86_64 architectures")
+    if notarized:
+        run_checked(["/usr/bin/xcrun", "stapler", "validate", str(app)])
 
 
-def generate_cask(version: str, archive_path: Path) -> str:
+def generate_cask(version: str, archive_path: Path, *, notarized: bool = False) -> str:
     validate_version(version)
     expected_name = f"VibeStatus-{version}.zip"
     if archive_path.name != expected_name:
@@ -132,20 +150,27 @@ def generate_cask(version: str, archive_path: Path) -> str:
         snapshot = temporary / expected_name
         shutil.copyfile(archive_path, snapshot)
         inspect_archive(snapshot, version)
-        verify_packaged_app(snapshot, temporary / "unpacked")
+        verify_packaged_app(snapshot, temporary / "unpacked", notarized=notarized)
         digest = hashlib.sha256()
         with snapshot.open("rb") as release_file:
             for chunk in iter(lambda: release_file.read(1024 * 1024), b""):
                 digest.update(chunk)
 
-    return render_cask(version, digest.hexdigest())
+    return render_cask(version, digest.hexdigest(), notarized=notarized)
 
 
-def render_cask(version: str, sha256: str) -> str:
+def render_cask(version: str, sha256: str, *, notarized: bool = False) -> str:
     """Render the canonical cask; callers must verify the release artifact first."""
     validate_version(version)
     if not re.fullmatch(r"[0-9a-f]{64}", sha256):
         raise ReleaseValidationError("release checksum must be a lowercase SHA-256 hex digest")
+    caveats = "" if notarized else '''
+
+  caveats <<~EOS
+    This release is not notarized by Apple.
+    After opening Vibe Status, if macOS blocks it, approve this app in:
+      System Settings > Privacy & Security > Open Anyway
+  EOS'''
     return f'''cask "vibe-status" do
   version "{version}"
   sha256 "{sha256}"
@@ -159,7 +184,7 @@ def render_cask(version: str, sha256: str) -> str:
 
   app "VibeStatus.app"
 
-  zap trash: "~/Library/Preferences/{BUNDLE_ID}.plist"
+  zap trash: "~/Library/Preferences/{BUNDLE_ID}.plist"{caveats}
 end
 '''
 
@@ -167,11 +192,12 @@ end
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version", help="stable release version without a v prefix, e.g. 0.1.0")
-    parser.add_argument("archive", type=Path, help="final signed and stapled VibeStatus-VERSION.zip")
+    parser.add_argument("archive", type=Path, help="final ad-hoc signed VibeStatus-VERSION.zip")
     parser.add_argument("--output", type=Path, help="write the cask to this path (default: stdout)")
+    parser.add_argument("--notarized", action="store_true", help="require Developer ID signing and a stapled notarization ticket")
     args = parser.parse_args(argv)
     try:
-        cask = generate_cask(args.version, args.archive)
+        cask = generate_cask(args.version, args.archive, notarized=args.notarized)
         if args.output:
             if args.output.resolve() == args.archive.resolve():
                 raise ReleaseValidationError("output path must not overwrite the release ZIP")
@@ -179,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output.write_text(cask, encoding="utf-8")
         else:
             sys.stdout.write(cask)
-    except (ReleaseValidationError, OSError, zipfile.BadZipFile, plistlib.InvalidFileException, UnicodeError) as error:
+    except (ValueError, OSError, zipfile.BadZipFile, plistlib.InvalidFileException, UnicodeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"error: {error}\n")
     return 0
 
