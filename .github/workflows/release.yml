@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z, without v)"
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vibe-status-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'jchy20/vibe-status'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="$INPUT_VERSION"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then version="${GITHUB_REF_NAME#v}"; fi
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "::error::Version must be X.Y.Z"; exit 1;
+          }
+          if git show-ref --verify --quiet "refs/tags/v$version"; then
+            [[ "$(git rev-parse "refs/tags/v$version^{commit}")" == "$(git rev-parse HEAD)" ]] || {
+              echo "::error::Existing version tag points to a different commit"; exit 1;
+            }
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Check required credentials and tap
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          for name in APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD GH_TOKEN; do
+            [[ -n "${!name}" ]] || { echo "::error::Missing release secret: $name (GH_TOKEN is HOMEBREW_TAP_TOKEN)"; exit 1; }
+          done
+          gh repo view jchy20/homebrew-tap --json visibility --jq '.visibility' | grep -qx PUBLIC
+
+      - name: Test
+        run: |
+          python3 -m unittest discover -s Tests/Distribution -p 'test_*.py'
+          xcodebuild -project VibeStatus.xcodeproj -scheme VibeStatus \
+            -configuration Release -destination 'platform=macOS' \
+            -derivedDataPath DerivedData/Tests CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES test
+
+      - name: Configure temporary signing keychain
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          umask 077
+          keychain="$RUNNER_TEMP/vibe-status-signing.keychain-db"
+          certificate="$RUNNER_TEMP/vibe-status-signing.p12"
+          password=$(openssl rand -hex 32)
+          echo "::add-mask::$password"
+          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -k "$keychain" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -d user -s "$keychain"
+          rm -f "$certificate"
+          xcrun notarytool store-credentials vibe-status-release \
+            --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Build, sign, notarize and generate cask
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          NOTARYTOOL_PROFILE: vibe-status-release
+          NOTARYTOOL_KEYCHAIN: ${{ runner.temp }}/vibe-status-signing.keychain-db
+        run: |
+          bash scripts/build_release.sh "$RELEASE_VERSION" "$GITHUB_RUN_NUMBER"
+          python3 scripts/generate_homebrew_cask.py "$RELEASE_VERSION" \
+            "dist/releases/$RELEASE_VERSION/VibeStatus-$RELEASE_VERSION.zip" \
+            --output "dist/releases/$RELEASE_VERSION/vibe-status.rb"
+          ruby -c "dist/releases/$RELEASE_VERSION/vibe-status.rb"
+
+      - name: Preserve validated release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: VibeStatus-${{ steps.version.outputs.value }}
+          path: |
+            dist/releases/${{ steps.version.outputs.value }}/*.zip
+            dist/releases/${{ steps.version.outputs.value }}/*.sha256
+            dist/releases/${{ steps.version.outputs.value }}/vibe-status.rb
+            dist/releases/${{ steps.version.outputs.value }}/release.json
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$RELEASE_VERSION" \
+            "dist/releases/$RELEASE_VERSION/VibeStatus-$RELEASE_VERSION.zip" \
+            "dist/releases/$RELEASE_VERSION/VibeStatus-$RELEASE_VERSION.zip.sha256" \
+            "dist/releases/$RELEASE_VERSION/vibe-status.rb" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+            --title "Vibe Status $RELEASE_VERSION" --notes-file distribution/release-notes.md
+          gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          python3 scripts/update_homebrew_tap.py "$RELEASE_VERSION" \
+            "dist/releases/$RELEASE_VERSION/vibe-status.rb"
+
+      - name: Preserve failed release diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/.release-*/build.log
+            dist/.release-*/notarization*.json
+            dist/.release-*/release.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/vibe-status-signing.keychain-db" ]]; then
+            security default-keychain -d user -s "$HOME/Library/Keychains/login.keychain-db"
+            security delete-keychain "$RUNNER_TEMP/vibe-status-signing.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/vibe-status-signing.p12"

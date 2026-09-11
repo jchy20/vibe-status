@@ -15,9 +15,10 @@ Open the menu-bar popover to see tasks grouped by state and remote host.
 Vibe Status focuses on top-level tasks, so Codex subagents and temporary side
 conversations do not clutter the list. Each task is labeled with its agent.
 
-> **Beta:** Vibe Status is currently distributed as source. Testers clone the
-> repository and build the app locally. A paid Apple Developer account is not
-> required for local builds.
+> **Beta:** Signed release and Homebrew publishing automation is now included.
+> Until the first signed build is published on [GitHub Releases](https://github.com/jchy20/vibe-status/releases),
+> build the app locally using the instructions below. A paid Apple Developer
+> account is not required for local builds.
 
 ## Requirements
 
@@ -260,6 +261,22 @@ Protocol exploration notes and diagnostic tools live in
 
 ## Distribution
 
-The repository currently supports local development builds only. Debug builds
-are not signed or notarized for general distribution. A future release process
-will publish signed and notarized builds separately from the source repository.
+Releases are packaged as a universal `VibeStatus.app` for Apple Silicon and Intel
+Macs running macOS 14 or newer. The release workflow signs the app with Developer
+ID, notarizes it with Apple, staples the ticket, and publishes a ZIP and SHA-256
+checksum on [GitHub Releases](https://github.com/jchy20/vibe-status/releases).
+
+Once the first signed release and its cask are published, install with:
+
+```sh
+brew install --cask jchy20/tap/vibe-status
+open -a VibeStatus
+```
+
+Alternatively, download the release ZIP, extract it, and move `VibeStatus.app` to
+Applications. Prebuilt app users do not need Xcode. Optional Claude Code hook
+setup still uses the repository scripts described above.
+
+Maintainers: see [Releasing Vibe Status](docs/releasing.md) for Apple credential
+setup, creating the tap, local packaging, and the GitHub Actions release workflow.
+Unsigned validation builds are kept separately and cannot generate a release cask.

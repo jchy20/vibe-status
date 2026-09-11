@@ -25,6 +25,14 @@ public actor ClusterSupervisor {
         let failedIDs: Set<String>
     }
 
+    // A named result avoids an optimizer issue where iterating a task group of
+    // (String, CodexTurnStatus?, Bool) tuples can discard successful results.
+    private struct StandaloneTurnStatusRead: Sendable {
+        let threadID: String
+        let status: CodexTurnStatus?
+        let succeeded: Bool
+    }
+
     public let hostID: String
 
     private let engine: MonitoringEngine
@@ -539,29 +547,33 @@ public actor ClusterSupervisor {
             )
             let batch = orderedIdentifiers[startIndex ..< endIndex]
             await withTaskGroup(
-                of: (String, CodexTurnStatus?, Bool).self
+                of: StandaloneTurnStatusRead.self
             ) { group in
                 for identifier in batch {
                     group.addTask {
                         do {
-                            return (
-                                identifier,
-                                try await session.latestTurnStatus(
+                            return StandaloneTurnStatusRead(
+                                threadID: identifier,
+                                status: try await session.latestTurnStatus(
                                     threadID: identifier
                                 ),
-                                true
+                                succeeded: true
                             )
                         } catch {
-                            return (identifier, nil, false)
+                            return StandaloneTurnStatusRead(
+                                threadID: identifier,
+                                status: nil,
+                                succeeded: false
+                            )
                         }
                     }
                 }
-                for await (identifier, status, succeeded) in group {
-                    if !succeeded {
-                        failedIDs.insert(identifier)
+                for await result in group {
+                    if !result.succeeded {
+                        failedIDs.insert(result.threadID)
                     }
-                    if let status {
-                        statuses[identifier] = status
+                    if let status = result.status {
+                        statuses[result.threadID] = status
                     }
                 }
             }
